@@ -50,8 +50,8 @@ namespace UdpRelay
             Logger.SetLogLevel(s_startupArguments.LogLevel);
 
             // Open rooms requested on the command line.
-            // Normally it should only be used for debugging, when its required to have one or a few rooms running by default.
-            // Such rooms are unsafe as they don't use token based connection validation.
+            // Normally it should only be used for debugging when it's required to have one or a few rooms running by default.
+            // Such rooms are unsafe as they don't use token-based connection validation.
             if (s_startupArguments.DefaultRoomPorts.Length > 0)
             {
                 Logger.LogInfo($"[Node] Requested '{s_startupArguments.DefaultRoomPorts.Length}' default room(s) to be opened.");
@@ -61,8 +61,8 @@ namespace UdpRelay
                     Logger.LogInfo($"[Node] Trying to open a room on port: {requestedPort}.");
 
                     // The code below has the same logic as the socket api.
-                    // 1. Port not specified (0), caller doesn't care about the port, first available port will be used.
-                    // 2. Port is specified (!=0), caller DO care about the port - do nothing here, port will be validated upon creation.
+                    // 1. Port isn't specified (0), caller doesn't care about the port, first available port will be used.
+                    // 2. Port is specified (!=0), caller DOES care about the port - do nothing here, port will be validated upon creation.
                     var targetPort = requestedPort;
                     if (targetPort == 0)
                     {

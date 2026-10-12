@@ -22,16 +22,16 @@ namespace UdpRelay
         /// </summary>
         internal void Bind(HttpServer server)
         {
-            server.Bind(HttpMethod.Get, "/api/status", HandleStatusRequest);
-            server.Bind(HttpMethod.Get, "/api/node", HandleGetNodeRequest);
-            server.Bind(HttpMethod.Get, "/api/rooms", HandleGetRoomsRequest);
-            server.Bind(HttpMethod.Post, "/api/rooms", HandleOpenRoomRequestAsync);
-            server.Bind(HttpMethod.Delete, "/api/rooms", HandleCloseRoomsRequest);
-            server.Bind(HttpMethod.Get, "/api/rooms/{port}", HandleGetRoomRequest);
-            server.Bind(HttpMethod.Delete, "/api/rooms/{port}", HandleCloseRoomRequest);
-            server.Bind(HttpMethod.Get, "/api/rooms/{port}/clients", HandleGetClientsRequest);
-            server.Bind(HttpMethod.Get, "/api/rooms/{port}/clients/{uid}", HandleGetClientRequest);
-            server.Bind(HttpMethod.Delete, "/api/rooms/{port}/clients/{uid}", HandleDropClientRequest);
+            server.Bind(HttpMethod.Get, template: "/api/status", HandleStatusRequest);
+            server.Bind(HttpMethod.Get, template: "/api/node", HandleGetNodeRequest);
+            server.Bind(HttpMethod.Get, template: "/api/rooms", HandleGetRoomsRequest);
+            server.Bind(HttpMethod.Post, template: "/api/rooms", HandleOpenRoomRequestAsync);
+            server.Bind(HttpMethod.Delete, template: "/api/rooms", HandleCloseRoomsRequest);
+            server.Bind(HttpMethod.Get, template: "/api/rooms/{port}", HandleGetRoomRequest);
+            server.Bind(HttpMethod.Delete, template: "/api/rooms/{port}", HandleCloseRoomRequest);
+            server.Bind(HttpMethod.Get, template: "/api/rooms/{port}/clients", HandleGetClientsRequest);
+            server.Bind(HttpMethod.Get, template: "/api/rooms/{port}/clients/{uid}", HandleGetClientRequest);
+            server.Bind(HttpMethod.Delete, template: "/api/rooms/{port}/clients/{uid}", HandleDropClientRequest);
         }
 
         /// <summary>

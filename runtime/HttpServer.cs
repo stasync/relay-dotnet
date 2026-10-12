@@ -48,7 +48,7 @@ namespace UdpRelay
                 throw new InvalidOperationException($"Listener is already running. Cannot bind API after calling '{nameof(StartBlocking)}'.");
 
             var routeTemplate = new RouteTemplate(template);
-            var currentRoute = _routes.Find(route => route.Method == method && route.Template.HasSameShapeAs(routeTemplate));
+            var currentRoute = _routes.Find(match: route => route.Method == method && route.Template.HasSameShapeAs(routeTemplate));
             if (currentRoute != null)
             {
                 var currentHandler = currentRoute.Handler;
@@ -137,10 +137,9 @@ namespace UdpRelay
         {
             try
             {
-                // HttpListener answers a POST or PUT that has no body length with 411 Length Required itself, but still hands the request over.
-                // It must not be acted on, or e.g. a room would be opened for a request the client saw fail.
-                if (context.Request.HttpMethod is "POST" or "PUT" &&
-                    context.Request.Headers["Content-Length"] == null &&
+                // HttpListener answers a POST or PUT that has no body length with 411 Length Required itself but still hands the request over.
+                // It must not be acted on, or e.g., a room would be opened for a request the client saw fail.
+                if (context.Request.HttpMethod is "POST" or "PUT" && context.Request.Headers["Content-Length"] == null &&
                     !string.Equals(context.Request.Headers["Transfer-Encoding"], "chunked", StringComparison.OrdinalIgnoreCase))
                 {
                     Logger.LogError($"[{GetType().FullName}] Ignoring {context.Request.HttpMethod} {context.Request.Url!.AbsolutePath}: no Content-Length, already answered with 411.");
@@ -156,7 +155,7 @@ namespace UdpRelay
 
                     if (route.Method.Method != context.Request.HttpMethod)
                     {
-                        (allowedMethods ??= new List<string>()).Add(route.Method.Method);
+                        (allowedMethods ??= []).Add(route.Method.Method);
                         continue;
                     }
 

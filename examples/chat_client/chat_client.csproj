@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <LangVersion>14</LangVersion>
+        <OutputType>Exe</OutputType>
+        <TargetFramework>net10.0</TargetFramework>
+        <RootNamespace>UdpRelay.Examples.ChatClient</RootNamespace>
+        <ProduceReferenceAssembly>false</ProduceReferenceAssembly>
+    </PropertyGroup>
+
+    <!-- Keel libraries (https://github.com/stasync/keel-dotnet) are downloaded from GitHub releases on first build and cached in plugins/keel/, the same way runtime/relay.csproj does it. -->
+    <PropertyGroup>
+        <KeelVersion>latest-build</KeelVersion>
+        <KeelTargetFramework>net10.0</KeelTargetFramework>
+        <KeelAsset>keel-$(KeelVersion)-$(KeelTargetFramework).zip</KeelAsset>
+        <KeelUrl>https://github.com/stasync/keel-dotnet/releases/download/$(KeelVersion)/$(KeelAsset)</KeelUrl>
+        <KeelDir>$(MSBuildThisFileDirectory)..\..\plugins\keel\$(KeelVersion)\$(KeelTargetFramework)\</KeelDir>
+    </PropertyGroup>
+
+    <Target Name="DownloadKeel" BeforeTargets="ResolveAssemblyReferences" Condition="!Exists('$(KeelDir)Keel.Utils.dll')">
+        <DownloadFile SourceUrl="$(KeelUrl)" DestinationFolder="$(KeelDir)" />
+        <Unzip SourceFiles="$(KeelDir)$(KeelAsset)" DestinationFolder="$(KeelDir)" />
+    </Target>
+
+    <!-- A client only needs the networking library, which depends on Keel.Utils. -->
+    <ItemGroup>
+        <Reference Include="Keel.Utils">
+            <HintPath>$(KeelDir)Keel.Utils.dll</HintPath>
+        </Reference>
+        <Reference Include="Keel.Networking">
+            <HintPath>$(KeelDir)Keel.Networking.dll</HintPath>
+        </Reference>
+    </ItemGroup>
+
+</Project>

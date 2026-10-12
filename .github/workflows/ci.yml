@@ -30,6 +30,9 @@ jobs:
       - name: Test
         run: dotnet test tests/relay_tests.csproj
 
+      - name: Build example client
+        run: dotnet build examples/chat_client/chat_client.csproj
+
       - name: Build
         if: github.ref == 'refs/heads/main'
         run: dotnet build runtime/relay.csproj --configuration "$BUILD_CONFIGURATION" --artifacts-path artifacts

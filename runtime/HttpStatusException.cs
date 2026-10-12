@@ -10,9 +10,7 @@ namespace UdpRelay
     {
         internal HttpStatusCode StatusCode { get; }
 
-        internal HttpStatusException(HttpStatusCode statusCode, string message) : base(message)
-        {
+        internal HttpStatusException(HttpStatusCode statusCode, string message) : base(message) =>
             StatusCode = statusCode;
-        }
     }
 }
