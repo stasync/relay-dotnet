@@ -156,7 +156,7 @@ namespace UdpRelay
         {
             if (string.IsNullOrWhiteSpace(_connectionKey))
             {
-                // If the primary key is not setup, we always allow the connection. This could be used from debugging/testing. This is a serious security issue and key should be assigned in production.
+                // If the primary key is not set up, we always allow the connection. This could be used from debugging/testing. This is a serious security issue and key should be assigned in production.
                 Logger.LogWarning($"[{nameof(OnValidateConnection)}] [SECURITY CONCERN] Bypassing validation for new connection ({connectionRequest.EndPoint}), as the primary connection key is not set.");
                 return true;
             }
@@ -255,7 +255,7 @@ namespace UdpRelay
                                 break;
                             }
 
-                            // If connection already exists, we shouldn't handle 'OnAuth' message type.
+                            // If a connection already exists, we shouldn't handle the 'OnAuth' message type.
                             if (!_clients.TryAdd(senderConnectionUid, clientData.Token))
                             {
                                 TryAddToBlacklist(senderConnectionUid, reason: $"Connection '{senderConnectionUid}' doesn't exist");
@@ -295,7 +295,7 @@ namespace UdpRelay
                             var userDataOpCode = _dataReader.ReadPackedUInt32();
                             var userDataReceiversCount = _dataReader.ReadPackedUInt32();
 
-                            // userDataReceiversCount == 0 means that message will be sent to everyone, except the sender.
+                            // userDataReceiversCount == 0 means that a message will be sent to everyone, except the sender.
                             _routingConnectionsCache.Clear();
                             if (userDataReceiversCount > 0)
                             {
@@ -316,12 +316,12 @@ namespace UdpRelay
                             // Data to send back.
                             var dataToSend = _dataWriter.AsArraySegment();
 
-                            // Send to others.
+                            // Send it to others.
                             foreach (var existedConnection in _clients.Keys)
                             {
                                 // Should be sent:
-                                // 1. userDataReceiversCount == 0 - send to everyone, except sender.
-                                // 2. userDataReceiversCount > 0 - collection explicitly defined, send to all valid connections that are present in _routingConnectionsCache collection.
+                                // 1. userDataReceiversCount == 0 - send it to everyone, except sender.
+                                // 2. userDataReceiversCount > 0 - collection explicitly defined, send it to all valid connections that are present in _routingConnectionsCache collection.
                                 var shouldBeSent =
                                     userDataReceiversCount == 0 && existedConnection != senderConnectionUid ||
                                     userDataReceiversCount > 0 && _routingConnectionsCache.Contains(existedConnection);
@@ -427,7 +427,7 @@ namespace UdpRelay
                 // Data to send to existed connections.
                 var dataToSend = _dataWriter.AsArraySegment();
 
-                // Send to all existed connections.
+                // Send it to all existed connections.
                 foreach (var existedConnection in _clients.Keys)
                     _udpServer.SendTo(existedConnection, dataToSend, UdpProtocol.DeliveryMethod.ReliableOrdered);
 
