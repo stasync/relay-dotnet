@@ -1,0 +1,17 @@
+*.suo
+*.csproj.user
+*.vs/
+*.vscode/
+*.idea/
+*.github/
+.claude/
+*bin/
+*obj/
+*artifacts/
+*.DS_Store
+*.DotSettings.user
+*.sln
+.env
+.DS_Store
+.sln
+plugins/
