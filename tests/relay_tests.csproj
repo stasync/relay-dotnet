@@ -21,10 +21,10 @@
     </ItemGroup>
 
     <ItemGroup>
-        <ProjectReference Include="..\runtime\rt_server.csproj"/>
+        <ProjectReference Include="..\runtime\relay.csproj"/>
     </ItemGroup>
 
-    <!-- Keel DLLs are downloaded by runtime/rt_server.csproj, which always builds first. -->
+    <!-- Keel DLLs are downloaded by runtime/relay.csproj, which always builds first. -->
     <ItemGroup>
         <Reference Include="Keel.Utils">
             <HintPath>..\plugins\keel\latest-build\net10.0\Keel.Utils.dll</HintPath>

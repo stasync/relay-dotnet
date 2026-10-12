@@ -5,21 +5,21 @@ cd "$reldir"
 BUILD_CONFIGURATION="release"
 DOTNET_ARTIFACTS_DIR="artifacts"
 
-RT_SERVER_ARTIFACTS="$DOTNET_ARTIFACTS_DIR/bin/rt_server/$BUILD_CONFIGURATION"
+RELAY_ARTIFACTS="$DOTNET_ARTIFACTS_DIR/bin/relay/$BUILD_CONFIGURATION"
 
 # Project paths
-RT_SERVER_PROJ="runtime/rt_server.csproj"
-RT_SERVER_TESTS_PROJ="tests/rt_server_tests.csproj"
+RELAY_PROJ="runtime/relay.csproj"
+RELAY_TESTS_PROJ="tests/relay_tests.csproj"
 
 rm -rf $DOTNET_ARTIFACTS_DIR
 
 #https://learn.microsoft.com/en-us/dotnet/core/tools/dotnet-build
 
-dotnet clean $RT_SERVER_PROJ
-dotnet clean $RT_SERVER_TESTS_PROJ
+dotnet clean $RELAY_PROJ
+dotnet clean $RELAY_TESTS_PROJ
 
-dotnet test $RT_SERVER_TESTS_PROJ
+dotnet test $RELAY_TESTS_PROJ
 
-dotnet build $RT_SERVER_PROJ --no-incremental --configuration $BUILD_CONFIGURATION --force --artifacts-path $DOTNET_ARTIFACTS_DIR
+dotnet build $RELAY_PROJ --no-incremental --configuration $BUILD_CONFIGURATION --force --artifacts-path $DOTNET_ARTIFACTS_DIR
 
-echo "Build output: $RT_SERVER_ARTIFACTS/"
+echo "Build output: $RELAY_ARTIFACTS/"

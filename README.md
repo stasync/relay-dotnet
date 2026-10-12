@@ -26,18 +26,18 @@ Keel is downloaded automatically during the first build.
 sh build.sh
 ```
 
-The script runs the tests and builds in release mode. The result goes to `artifacts/bin/rt_server/release/`, which git ignores. If the tests or the build fail, the script stops with a non-zero exit code, so CI can call it as is.
+The script runs the tests and builds in release mode. The result goes to `artifacts/bin/relay/release/`, which git ignores. If the tests or the build fail, the script stops with a non-zero exit code, so CI can call it as is.
 
-For a quick debug build, use `dotnet build runtime/rt_server.csproj`.
+For a quick debug build, use `dotnet build runtime/relay.csproj`.
 
 ### Keel
 
-The Keel DLLs are not checked in. On the first build, `runtime/rt_server.csproj` downloads `keel-<version>-net10.0.zip` from [Keel's GitHub releases](https://github.com/stasync/keel-dotnet/releases) and unpacks it into `plugins/keel/<version>/net10.0/`. Later builds reuse that copy. The `plugins/` folder is ignored by git.
+The Keel DLLs are not checked in. On the first build, `runtime/relay.csproj` downloads `keel-<version>-net10.0.zip` from [Keel's GitHub releases](https://github.com/stasync/keel-dotnet/releases) and unpacks it into `plugins/keel/<version>/net10.0/`. Later builds reuse that copy. The `plugins/` folder is ignored by git.
 
-The version comes from the `KeelVersion` property in `runtime/rt_server.csproj`. The default, `latest-build`, is a pre-release that Keel rebuilds after every change to its `main` branch.
+The version comes from the `KeelVersion` property in `runtime/relay.csproj`. The default, `latest-build`, is a pre-release that Keel rebuilds after every change to its `main` branch.
 
 - **Getting a newer `latest-build`:** the download only happens when the DLLs are missing. Delete `plugins/keel/` and build again.
-- **Pinning a version:** set `KeelVersion` to a release tag. Then update the three `HintPath`s in `tests/rt_server_tests.csproj`, which point at the `latest-build` folder.
+- **Pinning a version:** set `KeelVersion` to a release tag. Then update the three `HintPath`s in `tests/relay_tests.csproj`, which point at the `latest-build` folder.
 
 ## Running
 
@@ -58,7 +58,7 @@ When started this way, the relay's log files and `.cmdparam` files live in `runt
 To run the output of `build.sh` instead:
 
 ```bash
-dotnet artifacts/bin/rt_server/release/rt_server.dll -httpListenerUrl http://127.0.0.1:8080/
+dotnet artifacts/bin/relay/release/relay.dll -httpListenerUrl http://127.0.0.1:8080/
 ```
 
 Either way, the relay starts with the HTTP API and no relays open. Open relays through the API, as shown under [Opening a relay](#opening-a-relay).
@@ -73,7 +73,7 @@ sh startup.sh -relayPort 7777
 
 ### Launch arguments
 
-Arguments use a single dash: `-name value`. Each one can also be set with a file named `<name>.cmdparam` next to `rt_server.dll`, containing just the value.
+Arguments use a single dash: `-name value`. Each one can also be set with a file named `<name>.cmdparam` next to `relay.dll`, containing just the value.
 
 | Argument | Default | Description |
 |---|---|---|
@@ -85,7 +85,7 @@ Arguments use a single dash: `-name value`. Each one can also be set with a file
 | `blacklistDurationMs` | `10000` | How long a misbehaving IP address stays blocked. `0` turns blocking off. |
 | `logConnectionRejections` | `false` | Logs every rejected connection attempt. |
 | `logLevel` | `All` | Lowest level to log: `All`, `Warning`, `Error`, `Exception` or `Disabled`. |
-| `logOutputRelativePath` | `logs` | Folder for log files, relative to `rt_server.dll`. Each run writes `app_<pid>.log`. |
+| `logOutputRelativePath` | `logs` | Folder for log files, relative to `relay.dll`. Each run writes `app_<pid>.log`. |
 
 ### Shutting down
 
@@ -93,7 +93,7 @@ The process exits when its last relay closes. That happens after `/api/relay/shu
 
 ## HTTP API
 
-Every endpoint answers `GET` requests and returns JSON. **Paths must end with a slash:** `/api/relay/status/` works, but `/api/relay/status` returns 404.
+The backend controls the relay through these endpoints. Every endpoint answers `GET` requests and returns JSON. **Paths must end with a slash:** `/api/relay/status/` works, but `/api/relay/status` returns 404. The API has no authentication, so keep it on a local address such as `127.0.0.1`.
 
 | Endpoint | Query | What it does |
 |---|---|---|
@@ -106,15 +106,9 @@ Every endpoint answers `GET` requests and returns JSON. **Paths must end with a 
 | `/api/relay/shutdown/` | `port` (optional) | Closes one relay, or all of them. Returns `closedRelays`. |
 | `/api/system/info/` | | Returns memory use and the running worker threads. |
 
-A successful response always includes `"status": "success"`, a `timestamp`, and the request `method`. A failed request returns HTTP 500, or 404 for an unknown path, with a body like this:
+A failed request returns HTTP 500, or 404 for an unknown path, with the reason in an `error` field.
 
-```json
-{
-  "code": 500,
-  "error": "/api/relay/status/: Internal server error: Unable to find relay worker with port 9000.",
-  "timestamp": "2026-10-10T10:56:57.399358Z"
-}
-```
+For each endpoint's parameters, responses and errors, see the [HTTP API reference](docs/http-api.md).
 
 ### Opening a relay
 
@@ -125,8 +119,8 @@ curl -G "http://127.0.0.1:8080/api/relay/new/" --data-urlencode 'config={
   "TargetPort": 0,
   "ConnectionKey": "6f9b2c1e-4d7a-4e8b-9a3f-1c5d7e9b2a40",
   "Webhooks": {
-    "UserConnected": "http://127.0.0.1:3000/webhooks/relay_user_connected",
-    "UserDisconnected": "http://127.0.0.1:3000/webhooks/relay_user_disconnected"
+    "UserConnected": "http://127.0.0.1:3000/webhooks/relay_user_connected/",
+    "UserDisconnected": "http://127.0.0.1:3000/webhooks/relay_user_disconnected/"
   }
 }'
 ```
@@ -135,46 +129,16 @@ curl -G "http://127.0.0.1:8080/api/relay/new/" --data-urlencode 'config={
 {"status":"success","timestamp":"2026-10-10T10:56:28.239751Z","method":"GET","relayPort":49791,"workerName":"RelayThread_49791"}
 ```
 
-Every field is optional, and field names are case-sensitive.
-
-| Field | Default | Description |
-|---|---|---|
-| `TargetPort` | `0` | UDP port to listen on. `0` picks a free port. |
-| `WorkerName` | `RelayThread_<port>` | Thread name shown in logs and status. |
-| `ConnectionKey` | empty | Secret used to check connection tokens. If it's empty, anyone can join, so use that only for testing. |
-| `UdpEncryptionKey` | empty | If set, all UDP traffic is XOR-scrambled with this key, and clients must do the same (see [Writing a client](#writing-a-client)). This hides traffic from casual inspection but is not real encryption. |
-| `CaptureDataTransferAmount` | `false` | Counts traffic, reported as `bytesSent` and `bytesReceived` in the status endpoint. When off, both are `0`. |
-| `Webhooks.UserConnected` | empty | URL to POST to when a player joins. |
-| `Webhooks.UserDisconnected` | empty | URL to POST to when a player leaves. |
-| `ClientRateLimiter.KBitPerSecLimit` | `0` | Maximum incoming traffic per player, in kbit/s. A player who goes over it has their IP address blocked. `0` means no limit. |
+`TargetPort` `0` picks a free port. Leave out `ConnectionKey` only for testing: without it, anyone can join. Every setting is listed under [Relay settings](docs/http-api.md#relay-settings).
 
 ## Webhooks
 
-Each relay can POST JSON to the two URLs in its `Webhooks` config. Webhooks are only sent when the HTTP API is on.
+Each relay can call two URLs on the backend, set in its `Webhooks` settings:
 
-A player joining sends this to `UserConnected`. It fires when the player sends `OnAuth`, not when the UDP connection opens:
+- `UserConnected` receives the player's UID, the token they joined with, and their address. It fires when the player sends `OnAuth`, not when the UDP connection opens.
+- `UserDisconnected` receives the player's UID when they leave: they disconnect, time out, or are dropped through the API. It isn't sent when the relay itself is closed.
 
-```json
-{
-  "relayPort": 49791,
-  "connUid": 1,
-  "token": "<the token the player connected with>",
-  "endpoint": "203.0.113.5:54012",
-  "timestamp": "2026-10-10T10:56:28.239751Z"
-}
-```
-
-A player leaving, for any reason, sends this to `UserDisconnected`:
-
-```json
-{
-  "relayPort": 49791,
-  "connUid": 1,
-  "timestamp": "2026-10-10T10:56:31.102938Z"
-}
-```
-
-If a webhook URL can't be reached (a network error or no answer within 2 seconds), the relay keeps retrying it every 4 seconds. Any HTTP response, including an error status, counts as delivered.
+**Webhook URLs must end with `/`.** Without it, the relay logs an error and never calls the URL. A URL that can't be reached is retried every 4 seconds. The payloads and delivery rules are in the [HTTP API reference](docs/http-api.md#webhooks).
 
 ## Connection tokens
 
@@ -313,7 +277,7 @@ client.RegisterDataTransferLayer(new DataTransferXorObfuscationLayer(udpEncrypti
 ## Tests
 
 ```bash
-dotnet test tests/rt_server_tests.csproj
+dotnet test tests/relay_tests.csproj
 ```
 
 The tests cover parsing of relay settings and token encryption.
@@ -323,7 +287,7 @@ To format the code, run `sh dotnet_format.sh`.
 ## Project layout
 
 ```
-runtime/                       the relay server (rt_server.csproj)
+runtime/                       the relay server (relay.csproj)
   Entry.cs                     startup, launch arguments, HTTP routes, shutdown
   RelayServer.cs               one relay port: token checks, routing, blocking
   HttpServer.cs                HTTP listener
@@ -331,6 +295,7 @@ runtime/                       the relay server (rt_server.csproj)
   HttpWebhookSender.cs         webhooks, with retry
   IncomingDataAmountTracker.cs per-player rate limit
 tests/                         xUnit tests
+docs/http-api.md               HTTP API and webhook reference
 build.sh                       tests and builds into artifacts/
 startup.sh                     builds and runs the relay in the foreground
 dotnet_format.sh               runs dotnet format on every project
