@@ -13,6 +13,10 @@
         <DebugSymbols>false</DebugSymbols>
     </PropertyGroup>
 
+    <ItemGroup>
+        <InternalsVisibleTo Include="relay_tests"/>
+    </ItemGroup>
+
     <!-- Keel libraries (https://github.com/stasync/keel-dotnet) are downloaded from GitHub releases on first build and cached in plugins/keel/. -->
     <PropertyGroup>
         <KeelVersion>latest-build</KeelVersion>

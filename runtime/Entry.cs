@@ -148,14 +148,7 @@ namespace UdpRelay
 
                     // Create an http server to maintain IPC.
                     s_httpServer = new HttpServer(url: s_startupArguments.HttpListenerUrl);
-                    s_httpServer.Bind(api: "/api/status/", s_httpRequestHandler.HandleApiStatusRequest);
-                    s_httpServer.Bind(api: "/api/room/new/", s_httpRequestHandler.HandleNewRoomRequest);
-                    s_httpServer.Bind(api: "/api/room/close/", s_httpRequestHandler.HandleCloseRoomRequest);
-                    s_httpServer.Bind(api: "/api/room/status/", s_httpRequestHandler.HandleRoomStatusRequest);
-                    s_httpServer.Bind(api: "/api/room/has_client/", s_httpRequestHandler.HandleHasClientRequest);
-                    s_httpServer.Bind(api: "/api/room/get_client/", s_httpRequestHandler.HandleGetClientRequest);
-                    s_httpServer.Bind(api: "/api/room/drop_client/", s_httpRequestHandler.HandleDropClientRequest);
-                    s_httpServer.Bind(api: "/api/node/info/", s_httpRequestHandler.HandleNodeInfoRequest);
+                    s_httpRequestHandler.Bind(s_httpServer);
                     s_httpServer.StartBlocking();
                 }
                 else
