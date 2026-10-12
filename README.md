@@ -1,5 +1,7 @@
 # Relay
 
+[![CI](https://github.com/stasync/relay-dotnet/actions/workflows/ci.yml/badge.svg)](https://github.com/stasync/relay-dotnet/actions/workflows/ci.yml)
+
 Relay is a UDP relay server for multiplayer games. Players connect to a relay port, and the relay forwards each player's messages to the other players on that port, so players never need to reach each other directly.
 
 A backend service controls the relay through a small HTTP API. It opens relay ports, hands out short-lived connection tokens, and receives a webhook whenever a player joins or leaves. One process can host many relay ports, each on its own thread.
@@ -26,7 +28,7 @@ Keel is downloaded automatically during the first build.
 sh build.sh
 ```
 
-The script runs the tests and builds in release mode. The result goes to `artifacts/bin/relay/release/`, which git ignores. If the tests or the build fail, the script stops with a non-zero exit code, so CI can call it as is.
+The script runs the tests and builds in release mode. The result goes to `artifacts/bin/relay/release/`, which git ignores. If the tests or the build fail, the script stops with a non-zero exit code.
 
 For a quick debug build, use `dotnet build runtime/relay.csproj`.
 
@@ -284,9 +286,23 @@ The tests cover parsing of relay settings and token encryption.
 
 To format the code, run `sh dotnet_format.sh`.
 
+## Continuous integration
+
+GitHub Actions runs [`ci.yml`](.github/workflows/ci.yml) on every push:
+
+- **Any branch:** runs the tests.
+- **`main`:** runs the tests, builds the relay in release mode, and publishes it as the [`latest-build`](https://github.com/stasync/relay-dotnet/releases/tag/latest-build) pre-release. Each push to `main` replaces that release and moves its tag to the new commit.
+
+The release contains one file, `relay-latest-build-net10.0.zip`. Unzip it and run `dotnet relay.dll -httpListenerUrl http://127.0.0.1:8080/` on a machine with the .NET 10 runtime. Other projects can download it from a fixed URL:
+
+```
+https://github.com/stasync/relay-dotnet/releases/download/latest-build/relay-latest-build-net10.0.zip
+```
+
 ## Project layout
 
 ```
+.github/workflows/ci.yml       tests every push; builds and releases main
 runtime/                       the relay server (relay.csproj)
   Entry.cs                     startup, launch arguments, HTTP routes, shutdown
   RelayServer.cs               one relay port: token checks, routing, blocking

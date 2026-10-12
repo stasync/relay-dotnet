@@ -3,7 +3,6 @@
 *.vs/
 *.vscode/
 *.idea/
-*.github/
 .claude/
 *bin/
 *obj/

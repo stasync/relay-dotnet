@@ -1,0 +1,82 @@
+name: CI
+
+# Every branch runs the tests. Pushes to main also build the relay
+# and replace the rolling "latest-build" release with the result.
+on:
+  push:
+    branches: ['**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  BUILD_CONFIGURATION: release
+  RELEASE_NAME: latest-build
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Test
+        run: dotnet test tests/relay_tests.csproj
+
+      - name: Build
+        if: github.ref == 'refs/heads/main'
+        run: dotnet build runtime/relay.csproj --configuration "$BUILD_CONFIGURATION" --artifacts-path artifacts
+
+      - name: Upload build
+        if: github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v7
+        with:
+          name: relay-${{ github.run_number }}
+          path: artifacts/bin/relay/${{ env.BUILD_CONFIGURATION }}/
+          if-no-files-found: error
+
+  # Publishing runs in its own job, so only this job gets permission to write releases.
+  release:
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    # One release update at a time, so two quick pushes can't race on the same release.
+    concurrency:
+      group: release-${{ github.ref }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+
+    steps:
+      - name: Download build
+        uses: actions/download-artifact@v8
+        with:
+          name: relay-${{ github.run_number }}
+          path: relay
+
+      - name: Zip
+        run: |
+          (cd relay && zip -r "$GITHUB_WORKSPACE/relay-$RELEASE_NAME-net10.0.zip" .)
+          ls -l relay-*.zip
+
+      - name: Refresh latest build
+        run: |
+          # Recreate the pre-release so its tag moves to the commit that was just built.
+          gh release delete "$RELEASE_NAME" --cleanup-tag --yes 2> /dev/null || true
+          gh release create "$RELEASE_NAME" relay-*.zip \
+            --target "$GITHUB_SHA" \
+            --prerelease \
+            --title "Latest build" \
+            --notes "Built automatically from the newest commit on main: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$GITHUB_SHA
+
+          Unzip and run with \`dotnet relay.dll -httpListenerUrl http://127.0.0.1:8080/\` (needs the .NET 10 runtime).
+          This build is replaced on every push to main."
