@@ -26,7 +26,7 @@ Keel is downloaded automatically during the first build.
 sh build.sh
 ```
 
-The script runs the tests, builds in release mode, and copies the result to `build/bin/rt_server/`.
+The script runs the tests and builds in release mode. The result goes to `artifacts/bin/rt_server/release/`, which git ignores. If the tests or the build fail, the script stops with a non-zero exit code, so CI can call it as is.
 
 For a quick debug build, use `dotnet build runtime/rt_server.csproj`.
 
@@ -41,16 +41,34 @@ The version comes from the `KeelVersion` property in `runtime/rt_server.csproj`.
 
 ## Running
 
+The quickest way to run the relay is `startup.sh`. It builds the relay with `dotnet run` and runs it in the foreground, with the HTTP API on `http://127.0.0.1:8080/`. Stop it with Ctrl+C.
+
 ```bash
-dotnet build/bin/rt_server/rt_server.dll -httpListenerUrl http://127.0.0.1:8080/
+sh startup.sh
 ```
 
-This starts the HTTP API with no relays open. Open relays through the API, as shown under [Opening a relay](#opening-a-relay).
-
-For a quick local test without the API or tokens:
+Set `HTTP_LISTENER_URL` to use a different address. Any arguments are passed on to the relay:
 
 ```bash
-dotnet build/bin/rt_server/rt_server.dll -relayPort 7777
+HTTP_LISTENER_URL=http://127.0.0.1:9000/ sh startup.sh -maxConnectionsPerPort 32
+```
+
+When started this way, the relay's log files and `.cmdparam` files live in `runtime/bin/Release/net10.0/`.
+
+To run the output of `build.sh` instead:
+
+```bash
+dotnet artifacts/bin/rt_server/release/rt_server.dll -httpListenerUrl http://127.0.0.1:8080/
+```
+
+Either way, the relay starts with the HTTP API and no relays open. Open relays through the API, as shown under [Opening a relay](#opening-a-relay).
+
+The HTTP address must name a specific host, such as `127.0.0.1` or the machine's IP. `0.0.0.0` doesn't bind, and wildcards like `*` aren't accepted.
+
+For a quick local test without tokens, also open a relay at startup:
+
+```bash
+sh startup.sh -relayPort 7777
 ```
 
 ### Launch arguments
@@ -313,6 +331,7 @@ runtime/                       the relay server (rt_server.csproj)
   HttpWebhookSender.cs         webhooks, with retry
   IncomingDataAmountTracker.cs per-player rate limit
 tests/                         xUnit tests
-build.sh                       tests, builds and packages into build/bin/
+build.sh                       tests and builds into artifacts/
+startup.sh                     builds and runs the relay in the foreground
 dotnet_format.sh               runs dotnet format on every project
 ```
