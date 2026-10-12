@@ -1,6 +1,6 @@
 ﻿namespace UdpRelay
 {
-    internal enum ServerMessageType : byte
+    internal enum RoomMessageType : byte
     {
         OnJoined,
         OnPacket,

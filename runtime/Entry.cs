@@ -5,21 +5,23 @@ using Keel.Utils.Threading;
 using System;
 using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
+using System.Threading;
 
 namespace UdpRelay
 {
     internal static class Entry
     {
-        private static readonly ConcurrentDictionary<uint, RelayServer> s_servers = new();
+        private static readonly ConcurrentDictionary<uint, Room> s_rooms = new();
         private static readonly ConcurrentBag<PosixSignalRegistration> s_posixSignalRegistry = new();
         private static HttpServer s_httpServer;
         private static LogWorker s_logOutputWorker;
         private static HttpRequestHandler s_httpRequestHandler;
         private static StartupArguments s_startupArguments;
         private static HttpWebhookSender s_httpWebhookSender;
+        private static int s_isFinalizing;
 
-        // TODO: right now the entire application will be shut down as soon as the last relay port is closed.
-        // TODO: see HandleInstanceStop - right now its the part of application shutdown logic.
+        // TODO: right now the node shuts down as soon as its last room is closed.
+        // TODO: see HandleRoomClosed - right now its the part of application shutdown logic.
         // TODO: this should be configurable.
 
         private static void Main(string[] args)
@@ -47,16 +49,16 @@ namespace UdpRelay
             // Now update a log level from the config.
             Logger.SetLogLevel(s_startupArguments.LogLevel);
 
-            // Create relay instances.
-            // Normally it should only be used for debugging, when its required to have one or a few relay instances (threads) running by default.
-            // Such instances are unsafe as they don't use token based connection validation.
-            if (s_startupArguments.RelayDefaultPorts.Length > 0)
+            // Open rooms requested on the command line.
+            // Normally it should only be used for debugging, when its required to have one or a few rooms running by default.
+            // Such rooms are unsafe as they don't use token based connection validation.
+            if (s_startupArguments.DefaultRoomPorts.Length > 0)
             {
-                Logger.LogInfo($"[Relay] Requested '{s_startupArguments.RelayDefaultPorts.Length}' default port(s) to be opened.");
+                Logger.LogInfo($"[Node] Requested '{s_startupArguments.DefaultRoomPorts.Length}' default room(s) to be opened.");
 
-                foreach (var requestedPort in s_startupArguments.RelayDefaultPorts)
+                foreach (var requestedPort in s_startupArguments.DefaultRoomPorts)
                 {
-                    Logger.LogInfo($"[Relay] Trying to create relay on port: {requestedPort}.");
+                    Logger.LogInfo($"[Node] Trying to open a room on port: {requestedPort}.");
 
                     // The code below has the same logic as the socket api.
                     // 1. Port not specified (0), caller doesn't care about the port, first available port will be used.
@@ -82,9 +84,9 @@ namespace UdpRelay
                         }
                     }
 
-                    CreateRelayInstance(new RelayServerStartupData
+                    OpenRoom(new RoomSettings
                     {
-                        WorkerName = $"RelayThread_{targetPort}",
+                        Name = $"Room_{targetPort}",
                         TargetPort = targetPort,
                         ConnectionKey = string.Empty
                     });
@@ -100,13 +102,13 @@ namespace UdpRelay
 
                     posixSignalContext.Cancel = true;
 
-                    // Stop all instances.
-                    if (s_servers.IsEmpty)
+                    // Close all rooms.
+                    if (s_rooms.IsEmpty)
                         FinalizeApplication();
                     else
                     {
-                        foreach (var relayServer in s_servers.Values)
-                            relayServer.Stop();
+                        foreach (var room in s_rooms.Values)
+                            room.Stop();
                     }
                 }));
 
@@ -118,13 +120,13 @@ namespace UdpRelay
 
                     posixSignalContext.Cancel = true;
 
-                    // Stop all instances.
-                    if (s_servers.IsEmpty)
+                    // Close all rooms.
+                    if (s_rooms.IsEmpty)
                         FinalizeApplication();
                     else
                     {
-                        foreach (var relayServer in s_servers.Values)
-                            relayServer.Stop();
+                        foreach (var room in s_rooms.Values)
+                            room.Stop();
                     }
                 }));
 
@@ -134,7 +136,7 @@ namespace UdpRelay
                 // Create a handle for HTTP requests.
                 s_httpRequestHandler = new HttpRequestHandler
                 {
-                    CreateRelayInstance = CreateRelayInstance
+                    OpenRoom = OpenRoom
                 };
 
                 // If port equals 0, it's a valid case where a 1st available port should be picked.
@@ -147,13 +149,13 @@ namespace UdpRelay
                     // Create an http server to maintain IPC.
                     s_httpServer = new HttpServer(url: s_startupArguments.HttpListenerUrl);
                     s_httpServer.Bind(api: "/api/status/", s_httpRequestHandler.HandleApiStatusRequest);
-                    s_httpServer.Bind(api: "/api/relay/new/", s_httpRequestHandler.HandleNewRelayInstanceRequest);
-                    s_httpServer.Bind(api: "/api/relay/shutdown/", s_httpRequestHandler.HandleShutdownRelayRequest);
-                    s_httpServer.Bind(api: "/api/relay/status/", s_httpRequestHandler.HandleStatusInfoRequest);
-                    s_httpServer.Bind(api: "/api/relay/has_connection/", s_httpRequestHandler.HandleCheckRelayConnectionRequest);
-                    s_httpServer.Bind(api: "/api/relay/get_connection/", s_httpRequestHandler.HandleGetRelayConnectionDataRequest);
-                    s_httpServer.Bind(api: "/api/relay/drop_connection/", s_httpRequestHandler.HandleDropRelayConnectionRequest);
-                    s_httpServer.Bind(api: "/api/system/info/", s_httpRequestHandler.HandleSystemInfoRequest);
+                    s_httpServer.Bind(api: "/api/room/new/", s_httpRequestHandler.HandleNewRoomRequest);
+                    s_httpServer.Bind(api: "/api/room/close/", s_httpRequestHandler.HandleCloseRoomRequest);
+                    s_httpServer.Bind(api: "/api/room/status/", s_httpRequestHandler.HandleRoomStatusRequest);
+                    s_httpServer.Bind(api: "/api/room/has_client/", s_httpRequestHandler.HandleHasClientRequest);
+                    s_httpServer.Bind(api: "/api/room/get_client/", s_httpRequestHandler.HandleGetClientRequest);
+                    s_httpServer.Bind(api: "/api/room/drop_client/", s_httpRequestHandler.HandleDropClientRequest);
+                    s_httpServer.Bind(api: "/api/node/info/", s_httpRequestHandler.HandleNodeInfoRequest);
                     s_httpServer.StartBlocking();
                 }
                 else
@@ -166,30 +168,34 @@ namespace UdpRelay
         }
 
         /// <summary>
-        /// Handle stopped event to dispose exit signal interceptors.
-        /// This event will be called from the worker thread, so it has to be thread-safe.
+        /// Handle a room's stopped event. Once the last room is closed, the node shuts down.
+        /// This event will be called from the room's thread, so it has to be thread-safe.
         /// </summary>
-        private static void HandleInstanceStop(RelayServer server)
+        private static void HandleRoomClosed(Room room)
         {
-            Logger.LogInfo($"Relay server thread '{server.Name}' was terminated.");
+            Logger.LogInfo($"Room '{room.Name}' was closed.");
 
-            // Remove registered instances and check if any other instances left.
-            s_servers.TryRemove(server.Uid, out _);
-            if (s_servers.IsEmpty)
+            // Unregister the room and check if any other rooms are left.
+            s_rooms.TryRemove(room.Uid, out _);
+            if (s_rooms.IsEmpty)
             {
-                Logger.LogInfo("[SHUTDOWN] Last relay instance was stopped. Application will be terminated.");
+                Logger.LogInfo("[SHUTDOWN] Last room was closed. The node will exit.");
                 FinalizeApplication();
             }
         }
 
         /// <summary>
-        /// If there are no instances actively running, this function will exit the application (with code 0) as soon as the logging thread has been shut down.
-        /// Function will throw <see cref="InvalidOperationException"/> if at least 1 relay worker in active.
+        /// If there are no rooms open, this function will exit the application (with code 0) as soon as the logging thread has been shut down.
+        /// Function will throw <see cref="InvalidOperationException"/> if any room is still open.
         /// </summary>
         private static void FinalizeApplication()
         {
-            if (!s_servers.IsEmpty)
-                throw new InvalidOperationException("Application can only be finalized when all relay threads are stopped.");
+            if (!s_rooms.IsEmpty)
+                throw new InvalidOperationException("Application can only be finalized when all rooms are closed.");
+
+            // Rooms can close at the same time on different threads, and each one calls this. Only the first call shuts the node down.
+            if (Interlocked.Exchange(ref s_isFinalizing, 1) == 1)
+                return;
 
             // Stop http sever.
             s_httpServer?.Stop();
@@ -198,7 +204,7 @@ namespace UdpRelay
             // Now we will be able to close the process once the logging thread is shut down.
             s_logOutputWorker.Stopped += () =>
             {
-                // Relay thread instances count is 0 now - release interceptors.
+                // No rooms are left - release interceptors.
                 foreach (var exitSignalInterceptor in s_posixSignalRegistry)
                     exitSignalInterceptor.Dispose();
                 s_posixSignalRegistry.Clear();
@@ -215,45 +221,45 @@ namespace UdpRelay
         }
 
         /// <summary>
-        /// Creates a new relay instance based on the specified <param name="startupData"></param> configuration.
+        /// Opens a new room based on the specified <param name="settings"></param>.
         /// </summary>
-        private static void CreateRelayInstance(RelayServerStartupData startupData)
+        private static void OpenRoom(RoomSettings settings)
         {
-            var instance = new RelayServer(startupData, s_startupArguments.RelayMaxConnectionsPerPort, s_startupArguments.RelayProtocolKey, s_startupArguments.RelayMillisecondsTimeStep);
-            instance.Start(WorkerScope.NewForegroundThread);
-            instance.LogConnectionRejections = s_startupArguments.RelayLogConnectionRejections;
-            instance.BlacklistDurationMs = s_startupArguments.RelayBlacklistDurationMs;
-            instance.AutoCloseOnLastDisconnect = false;
-            instance.Stopped += () => HandleInstanceStop(instance);
-            instance.Connected += connectionData =>
+            var room = new Room(settings, s_startupArguments.MaxClientsPerRoom, s_startupArguments.ProtocolKey, s_startupArguments.RoomUpdateIntervalMs);
+            room.Start(WorkerScope.NewForegroundThread);
+            room.LogConnectionRejections = s_startupArguments.LogConnectionRejections;
+            room.BlacklistDurationMs = s_startupArguments.BlacklistDurationMs;
+            room.AutoCloseOnLastDisconnect = false;
+            room.Stopped += () => HandleRoomClosed(room);
+            room.ClientJoined += client =>
             {
                 s_httpWebhookSender?.SendAndForget(
-                    endpoint: startupData.Webhooks.UserConnected,
+                    endpoint: settings.Webhooks.ClientJoined,
                     payload: new
                     {
-                        relayPort = instance.Port,
-                        connUid = connectionData.Uid,
-                        token = connectionData.Token,
-                        endpoint = connectionData.EndPoint.ToString(),
+                        roomPort = room.Port,
+                        clientUid = client.Uid,
+                        token = client.Token,
+                        endpoint = client.EndPoint.ToString(),
                         timestamp = DateTime.UtcNow
                     });
             };
 
-            instance.Disconnected += connectionUid =>
+            room.ClientLeft += clientUid =>
             {
                 s_httpWebhookSender?.SendAndForget(
-                    endpoint: startupData.Webhooks.UserDisconnected,
+                    endpoint: settings.Webhooks.ClientLeft,
                     payload: new
                     {
-                        relayPort = instance.Port,
-                        connUid = connectionUid,
+                        roomPort = room.Port,
+                        clientUid,
                         timestamp = DateTime.UtcNow
                     });
             };
 
-            // Register instance.
-            s_servers.TryAdd(instance.Uid, instance);
-            Logger.LogInfo($"[{instance.Name}] Listening on port: '{instance.Port}'.");
+            // Register the room.
+            s_rooms.TryAdd(room.Uid, room);
+            Logger.LogInfo($"[{room.Name}] Listening on port: '{room.Port}'.");
         }
     }
 }

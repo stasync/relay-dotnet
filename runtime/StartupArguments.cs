@@ -17,22 +17,22 @@ namespace UdpRelay
         internal readonly string HttpListenerUrl = "";
 
         [InjectCommandArgument("blacklistDurationMs")]
-        internal readonly int RelayBlacklistDurationMs = 10000;
+        internal readonly int BlacklistDurationMs = 10000;
 
-        [InjectCommandArgument("relayPort")]
-        internal readonly int[] RelayDefaultPorts = Array.Empty<int>();
+        [InjectCommandArgument("roomPort")]
+        internal readonly int[] DefaultRoomPorts = Array.Empty<int>();
 
-        [InjectCommandArgument("maxConnectionsPerPort")]
-        internal readonly int RelayMaxConnectionsPerPort = 16;
+        [InjectCommandArgument("maxClientsPerRoom")]
+        internal readonly int MaxClientsPerRoom = 16;
 
-        [InjectCommandArgument("relayProtocolKey")]
-        internal readonly ushort RelayProtocolKey = 0;
+        [InjectCommandArgument("protocolKey")]
+        internal readonly ushort ProtocolKey = 0;
 
-        [InjectCommandArgument("relayMillisecondsTimeStep")]
-        internal readonly int RelayMillisecondsTimeStep = 50;
+        [InjectCommandArgument("roomUpdateIntervalMs")]
+        internal readonly int RoomUpdateIntervalMs = 50;
 
         [InjectCommandArgument("logConnectionRejections")]
-        internal readonly bool RelayLogConnectionRejections = false;
+        internal readonly bool LogConnectionRejections = false;
 
         public override string ToString()
         {

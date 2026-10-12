@@ -2,19 +2,36 @@
 
 [![CI](https://github.com/stasync/relay-dotnet/actions/workflows/ci.yml/badge.svg)](https://github.com/stasync/relay-dotnet/actions/workflows/ci.yml)
 
-Relay is a .NET server that forwards UDP messages between clients. Each client connects to a relay port, and every message it sends is passed on to the other clients on that port, so clients never need to reach each other directly. It fits any app where a group of clients exchanges messages in real time, such as multiplayer games, collaboration tools, chat, or device-to-device messaging.
+Relay is a .NET server that forwards UDP messages between clients. Clients join a room, and every message a client sends is passed on to the other clients in that room, so clients never need to reach each other directly. It fits any app where a group of clients exchanges messages in real time, such as multiplayer games, collaboration tools, chat, or device-to-device messaging.
 
-A backend service controls the relay through a small HTTP API. It opens relay ports, hands out short-lived connection tokens, and receives a webhook whenever a client joins or leaves. One process can host many relay ports, each on its own thread.
+A backend service controls Relay through a small HTTP API. It opens rooms, hands out short-lived connection tokens, and receives a webhook whenever a client joins or leaves.
 
-Networking is built on [Keel](https://github.com/stasync/keel-dotnet)'s reliable UDP, so each message can be sent unreliably, reliably, or reliably and in order. The relay runs on .NET 10. Clients use Keel too, which has builds for .NET 10 and .NET Standard 2.1, so a client can be almost any .NET app.
+Networking is built on [Keel](https://github.com/stasync/keel-dotnet)'s reliable UDP, so each message can be sent unreliably, reliably, or reliably and in order. Relay runs on .NET 10. Clients use Keel too, which has builds for .NET 10 and .NET Standard 2.1, so a client can be almost any .NET app.
+
+## Concepts
+
+| Term | What it is |
+|---|---|
+| **Node** | One relay process. It serves the HTTP API and runs rooms. |
+| **Room** | One UDP port with its own thread. It forwards messages between the clients that joined it. |
+| **Client** | One connection in a room, identified by a UID that's unique within that room. |
+
+```
+Node  (one process, HTTP API)
+├─ Room :50001
+│  ├─ Client 1
+│  └─ Client 2
+└─ Room :50002
+   └─ Client 3
+```
 
 ## How it works
 
-1. The backend starts the relay process with an HTTP control URL.
-2. The backend calls `/api/relay/new/` to open a relay port, passing a secret `ConnectionKey`.
-3. The backend gives each client the relay's address and a token encrypted with that key.
-4. The client connects over UDP with the token. The relay checks the token, and the client sends an `OnAuth` message to join.
-5. The relay forwards packets between clients on the same port, and calls the backend's webhooks when clients join or leave.
+1. The backend starts a node with an HTTP control URL.
+2. The backend calls `/api/room/new/` to open a room, passing a secret `ConnectionKey`.
+3. The backend gives each client the room's address and a token encrypted with that key.
+4. The client connects to the room over UDP with the token. The room checks the token, and the client sends an `OnAuth` message to join.
+5. The room forwards packets between its clients, and calls the backend's webhooks when clients join or leave.
 
 ## Requirements
 
@@ -43,19 +60,19 @@ The version comes from the `KeelVersion` property in `runtime/relay.csproj`. The
 
 ## Running
 
-The quickest way to run the relay is `startup.sh`. It builds the relay with `dotnet run` and runs it in the foreground, with the HTTP API on `http://127.0.0.1:8080/`. Stop it with Ctrl+C.
+The quickest way to start a node is `startup.sh`. It builds Relay with `dotnet run` and runs the node in the foreground, with the HTTP API on `http://127.0.0.1:8080/`. Stop it with Ctrl+C.
 
 ```bash
 sh startup.sh
 ```
 
-Set `HTTP_LISTENER_URL` to use a different address. Any arguments are passed on to the relay:
+Set `HTTP_LISTENER_URL` to use a different address. Any arguments are passed on to the node:
 
 ```bash
-HTTP_LISTENER_URL=http://127.0.0.1:9000/ sh startup.sh -maxConnectionsPerPort 32
+HTTP_LISTENER_URL=http://127.0.0.1:9000/ sh startup.sh -maxClientsPerRoom 32
 ```
 
-When started this way, the relay's log files and `.cmdparam` files live in `runtime/bin/Release/net10.0/`.
+When started this way, the node's log files and `.cmdparam` files live in `runtime/bin/Release/net10.0/`.
 
 To run the output of `build.sh` instead:
 
@@ -63,27 +80,27 @@ To run the output of `build.sh` instead:
 dotnet artifacts/bin/relay/release/relay.dll -httpListenerUrl http://127.0.0.1:8080/
 ```
 
-Either way, the relay starts with the HTTP API and no relays open. Open relays through the API, as shown under [Opening a relay](#opening-a-relay).
+Either way, the node starts with the HTTP API and no rooms open. Open rooms through the API, as shown under [Opening a room](#opening-a-room).
 
 The HTTP address must name a specific host, such as `127.0.0.1` or the machine's IP. `0.0.0.0` doesn't bind, and wildcards like `*` aren't accepted.
 
-For a quick local test without tokens, also open a relay at startup:
+For a quick local test without tokens, also open a room at startup:
 
 ```bash
-sh startup.sh -relayPort 7777
+sh startup.sh -roomPort 7777
 ```
 
 ### Launch arguments
 
-Arguments use a single dash: `-name value`. Each one can also be set with a file named `<name>.cmdparam` next to `relay.dll`, containing just the value.
+Launch arguments configure the node and apply to all of its rooms. They use a single dash: `-name value`. Each one can also be set with a file named `<name>.cmdparam` next to `relay.dll`, containing just the value.
 
 | Argument | Default | Description |
 |---|---|---|
 | `httpListenerUrl` | empty | Address for the HTTP API, such as `http://127.0.0.1:8080/`. It must end with `/`. Without it, the API and webhooks are off. |
-| `relayPort` | none | Opens a relay on this UDP port at startup. Repeat it to open more ports. `0` picks a free port. These relays have no connection key, so anyone can join: use them only for local testing. |
-| `maxConnectionsPerPort` | `16` | Maximum number of clients on one relay port. |
-| `relayProtocolKey` | `0` | Key that UDP packets must carry to be accepted. Keel's `ReliableUdpClient` always sends `0`, so keep the default unless your clients use a different key. |
-| `relayMillisecondsTimeStep` | `50` | How often each relay thread processes traffic, in milliseconds. |
+| `roomPort` | none | Opens a room on this UDP port at startup. Repeat it to open more rooms. `0` picks a free port. These rooms have no connection key, so anyone can join: use them only for local testing. |
+| `maxClientsPerRoom` | `16` | Maximum number of clients in one room. |
+| `protocolKey` | `0` | Key that UDP packets must carry to be accepted. Keel's `ReliableUdpClient` always sends `0`, so keep the default unless your clients use a different key. |
+| `roomUpdateIntervalMs` | `50` | How often each room's thread processes traffic, in milliseconds. |
 | `blacklistDurationMs` | `10000` | How long a misbehaving IP address stays blocked. `0` turns blocking off. |
 | `logConnectionRejections` | `false` | Logs every rejected connection attempt. |
 | `logLevel` | `All` | Lowest level to log: `All`, `Warning`, `Error`, `Exception` or `Disabled`. |
@@ -91,60 +108,60 @@ Arguments use a single dash: `-name value`. Each one can also be set with a file
 
 ### Shutting down
 
-The process exits when its last relay closes. That happens after `/api/relay/shutdown/` closes the final relay, or on Ctrl+C or `SIGTERM`, which close every relay first.
+A node exits when its last room closes. That happens after `/api/room/close/` closes the final room, or on Ctrl+C or `SIGTERM`, which close every room first.
 
 ## HTTP API
 
-The backend controls the relay through these endpoints. Every endpoint answers `GET` requests and returns JSON. **Paths must end with a slash:** `/api/relay/status/` works, but `/api/relay/status` returns 404. The API has no authentication, so keep it on a local address such as `127.0.0.1`.
+The backend controls a node through these endpoints. Every endpoint answers `GET` requests and returns JSON. **Paths must end with a slash:** `/api/room/status/` works, but `/api/room/status` returns 404. The API has no authentication, so keep it on a local address such as `127.0.0.1`.
 
 | Endpoint | Query | What it does |
 |---|---|---|
-| `/api/status/` | | Health check. Returns the process ID as `pid`. |
-| `/api/relay/new/` | `config` (optional) | Opens a relay. Returns `relayPort` and `workerName`. |
-| `/api/relay/status/` | `port` (optional) | Returns every relay, or just one, with its connection UIDs and traffic counters. |
-| `/api/relay/has_connection/` | `port`, `uid` | Returns `hasConnection`: whether that UID is joined. |
-| `/api/relay/get_connection/` | `port`, plus `uid` or `token` | Finds a connection by UID, or by the token it joined with. Returns `connectionUid`. |
-| `/api/relay/drop_connection/` | `port`, `uid` | Disconnects a client. The other clients get `OnDisconnect` and the disconnect webhook fires. |
-| `/api/relay/shutdown/` | `port` (optional) | Closes one relay, or all of them. Returns `closedRelays`. |
-| `/api/system/info/` | | Returns memory use and the running worker threads. |
+| `/api/status/` | | Health check. Returns the node's process ID as `pid`. |
+| `/api/node/info/` | | Returns the node's memory use and running threads. |
+| `/api/room/new/` | `config` (optional) | Opens a room. Returns its `name` and `port`. |
+| `/api/room/status/` | `port` (optional) | Returns every room, or just one, with its client UIDs and traffic counters. |
+| `/api/room/has_client/` | `port`, `uid` | Returns `hasClient`: whether that client is in the room. |
+| `/api/room/get_client/` | `port`, plus `uid` or `token` | Finds a client by UID, or by the token it joined with. Returns `clientUid`. |
+| `/api/room/drop_client/` | `port`, `uid` | Disconnects a client. The other clients get `OnDisconnect` and the `ClientLeft` webhook fires. |
+| `/api/room/close/` | `port` (optional) | Closes one room, or all of them. Returns `closedRooms`. |
 
 A failed request returns HTTP 500, or 404 for an unknown path, with the reason in an `error` field.
 
 For each endpoint's parameters, responses and errors, see the [HTTP API reference](docs/http-api.md).
 
-### Opening a relay
+### Opening a room
 
-Pass the relay settings as JSON in the `config` query parameter:
+Pass the room settings as JSON in the `config` query parameter:
 
 ```bash
-curl -G "http://127.0.0.1:8080/api/relay/new/" --data-urlencode 'config={
+curl -G "http://127.0.0.1:8080/api/room/new/" --data-urlencode 'config={
   "TargetPort": 0,
   "ConnectionKey": "6f9b2c1e-4d7a-4e8b-9a3f-1c5d7e9b2a40",
   "Webhooks": {
-    "UserConnected": "http://127.0.0.1:3000/webhooks/relay_user_connected/",
-    "UserDisconnected": "http://127.0.0.1:3000/webhooks/relay_user_disconnected/"
+    "ClientJoined": "http://127.0.0.1:3000/webhooks/client_joined/",
+    "ClientLeft": "http://127.0.0.1:3000/webhooks/client_left/"
   }
 }'
 ```
 
 ```json
-{"status":"success","timestamp":"2026-10-10T10:56:28.239751Z","method":"GET","relayPort":49791,"workerName":"RelayThread_49791"}
+{"status":"success","timestamp":"2026-10-12T15:54:43.576478Z","method":"GET","room":{"name":"Room_58792","port":58792}}
 ```
 
-`TargetPort` `0` picks a free port. Leave out `ConnectionKey` only for testing: without it, anyone can join. Every setting is listed under [Relay settings](docs/http-api.md#relay-settings).
+`TargetPort` `0` picks a free port. Leave out `ConnectionKey` only for testing: without it, anyone can join. Every setting is listed under [Room settings](docs/http-api.md#room-settings).
 
 ## Webhooks
 
-Each relay can call two URLs on the backend, set in its `Webhooks` settings:
+Each room can call two URLs on the backend, set in its `Webhooks` settings:
 
-- `UserConnected` receives the client's UID, the token it joined with, and its address. It fires when the client sends `OnAuth`, not when the UDP connection opens.
-- `UserDisconnected` receives the client's UID when it leaves: it disconnects, times out, or is dropped through the API. It isn't sent when the relay itself is closed.
+- `ClientJoined` receives the client's UID, the token it joined with, and its address. It fires when the client sends `OnAuth`, not when the UDP connection opens.
+- `ClientLeft` receives the client's UID when it leaves: it disconnects, times out, or is dropped through the API. It isn't sent when the room itself is closed.
 
-**Webhook URLs must end with `/`.** Without it, the relay logs an error and never calls the URL. A URL that can't be reached is retried every 4 seconds. The payloads and delivery rules are in the [HTTP API reference](docs/http-api.md#webhooks).
+**Webhook URLs must end with `/`.** Without it, the node logs an error and never calls the URL. A URL that can't be reached is retried every 4 seconds. The payloads and delivery rules are in the [HTTP API reference](docs/http-api.md#webhooks).
 
 ## Connection tokens
 
-When a relay has a `ConnectionKey`, each client must present a token when connecting. A token is this JSON, encrypted with the relay's key, with times in Unix milliseconds:
+When a room has a `ConnectionKey`, each client must present a token when connecting. A token is this JSON, encrypted with the room's key, with times in Unix milliseconds:
 
 ```json
 { "TargetPort": 49791, "IssueUnixTime": 1791622588239, "ExpirationUnixTime": 1791622618239 }
@@ -160,7 +177,7 @@ using Keel.Utils.Security;
 var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 var json = JsonSerializer.Serialize(new
 {
-    TargetPort = relayPort,
+    TargetPort = roomPort,
     IssueUnixTime = now,
     ExpirationUnixTime = now + 30_000
 });
@@ -169,14 +186,14 @@ var token = EncryptionUtility.Encrypt(json, connectionKey);
 
 The encryption is AES-256-CBC with an HMAC-SHA256 integrity check, written as three base64 parts: `iv:ciphertext:mac`. `crypto_utils.ts` in lro_server produces the same format, so its tokens work without changes.
 
-The relay accepts a token only if all of these hold:
+A room accepts a token only if all of these hold:
 
-- It decrypts with the relay's `ConnectionKey`, and the integrity check passes.
-- `TargetPort` matches the relay's port.
+- It decrypts with the room's `ConnectionKey`, and the integrity check passes.
+- `TargetPort` matches the room's port.
 - It hasn't expired.
 - No one else has used it yet. A token stays reserved until it expires, even after its client disconnects, so a reconnecting client needs a new token.
 
-When a check fails, the relay rejects the connection and blocks the client's IP address for `blacklistDurationMs`. Every other client behind that address, such as one on the same home or office network, is blocked too.
+When a check fails, the room rejects the connection and blocks the client's IP address for `blacklistDurationMs`. Every other client behind that address, such as one on the same home or office network, is blocked too.
 
 ## Writing a client
 
@@ -186,22 +203,22 @@ Messages from the client:
 
 | Type | Byte | Contents |
 |---|---|---|
-| `OnAuth` | `0` | Nothing else. Send it once, right after `Connected` fires. The relay ignores a client until it arrives. |
+| `OnAuth` | `0` | Nothing else. Send it once, right after `Connected` fires. The room ignores a client until it arrives. |
 | `OnPacket` | `1` | Op code (packed), receiver count (packed), each receiver's UID (packed), then the payload (`WriteBytesAndSize`). |
 
-A receiver count of `0` sends the packet to everyone except the sender. Otherwise only the listed UIDs get it. The relay forwards each packet with the same delivery method the client used.
+A receiver count of `0` sends the packet to everyone except the sender. Otherwise only the listed UIDs get it. The room forwards each packet with the same delivery method the client used.
 
-Messages from the relay:
+Messages from the room:
 
 | Type | Byte | Contents |
 |---|---|---|
-| `OnJoined` | `0` | The new client's UID (packed), the client count (packed), then every UID on the relay, including the new one (packed). Sent to everyone, including the new client. |
+| `OnJoined` | `0` | The new client's UID (packed), the client count (packed), then every UID in the room, including the new one (packed). Sent to everyone, including the new client. |
 | `OnPacket` | `1` | Sender's UID (packed), op code (packed), payload (`ReadBytesAndSize`). |
 | `OnDisconnect` | `2` | The UID of the client that left (packed). |
 
-The relay never reads the op code or payload, so their meaning is up to you. A client can spot its own `OnJoined` by comparing the UID with `client.ConnectionUid`.
+The room never reads the op code or payload, so their meaning is up to you. A client can spot its own `OnJoined` by comparing the UID with `client.ConnectionUid`.
 
-The relay blocks the sender's IP address if a message is malformed, has an unknown type, or is an `OnPacket` sent before `OnAuth`.
+The room blocks the sender's IP address if a message is malformed, has an unknown type, or is an `OnPacket` sent before `OnAuth`.
 
 ### Example
 
@@ -216,7 +233,7 @@ using Keel.Networking.Udp.LowLevel;
 
 var client = new ReliableUdpClient();
 
-// Join the relay as soon as the UDP connection is up.
+// Join the room as soon as the UDP connection is up.
 client.Connected += () =>
     client.Send(new byte[] { 0 }, UdpProtocol.DeliveryMethod.ReliableOrdered); // OnAuth
 
@@ -246,7 +263,7 @@ client.DataReceived += (data, deliveryMethod) =>
     }
 };
 
-client.Connect(new IPEndPoint(IPAddress.Parse(relayHost), relayPort), connectionData: token);
+client.Connect(new IPEndPoint(IPAddress.Parse(nodeHost), roomPort), connectionData: token);
 
 while (true)
 {
@@ -255,7 +272,7 @@ while (true)
 }
 ```
 
-Once the client has joined, this sends "hello" with op code `7` to everyone else on the relay:
+Once the client has joined, this sends "hello" with op code `7` to everyone else in the room:
 
 ```csharp
 var writer = new NetWriter();
@@ -267,12 +284,12 @@ writer.WriteBytesAndSize(Encoding.UTF8.GetBytes("hello"));
 client.Send(writer.AsArraySegment(), UdpProtocol.DeliveryMethod.ReliableOrdered);
 ```
 
-If the relay has a `UdpEncryptionKey`, register the same key on the client right after `Connect()`, because the client creates its socket there:
+If the room has a `UdpEncryptionKey`, register the same key on the client right after `Connect()`, because the client creates its socket there:
 
 ```csharp
 using Keel.Networking.Udp.LowLevel.DataTransferLayers;
 
-client.Connect(relayEndPoint, connectionData: token);
+client.Connect(roomEndPoint, connectionData: token);
 client.RegisterDataTransferLayer(new DataTransferXorObfuscationLayer(udpEncryptionKey));
 ```
 
@@ -282,7 +299,7 @@ client.RegisterDataTransferLayer(new DataTransferXorObfuscationLayer(udpEncrypti
 dotnet test tests/relay_tests.csproj
 ```
 
-The tests cover parsing of relay settings and token encryption.
+The tests cover parsing of room settings and token encryption.
 
 To format the code, run `sh dotnet_format.sh`.
 
@@ -303,9 +320,10 @@ https://github.com/stasync/relay-dotnet/releases/download/latest-build/relay-lat
 
 ```
 .github/workflows/ci.yml       tests every push; builds and releases main
-runtime/                       the relay server (relay.csproj)
+runtime/                       the relay node (relay.csproj)
   Entry.cs                     startup, launch arguments, HTTP routes, shutdown
-  RelayServer.cs               one relay port: token checks, routing, blocking
+  Room.cs                      one room: token checks, routing, blocking
+  RoomSettings.cs              settings accepted by /api/room/new/
   HttpServer.cs                HTTP listener
   HttpRequestHandler.cs        HTTP API endpoints
   HttpWebhookSender.cs         webhooks, with retry
@@ -313,6 +331,6 @@ runtime/                       the relay server (relay.csproj)
 tests/                         xUnit tests
 docs/http-api.md               HTTP API and webhook reference
 build.sh                       tests and builds into artifacts/
-startup.sh                     builds and runs the relay in the foreground
+startup.sh                     builds and runs a node in the foreground
 dotnet_format.sh               runs dotnet format on every project
 ```

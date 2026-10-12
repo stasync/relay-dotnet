@@ -15,9 +15,9 @@ using System.Text.Json.Serialization;
 namespace UdpRelay
 {
     /// <summary>
-    /// Relay server responsible for routing the udp packages accordingly, to the corresponded clients.
+    /// A room: one UDP port and thread that forwards messages between the clients that joined it.
     /// </summary>
-    internal sealed class RelayServer : Keel.Utils.Threading.Worker
+    internal sealed class Room : Keel.Utils.Threading.Worker
     {
         private sealed class ConnectionTokenData
         {
@@ -26,13 +26,13 @@ namespace UdpRelay
             [JsonInclude] internal long ExpirationUnixTime { get; init; }
         }
 
-        internal readonly struct NewConnectionData
+        internal readonly struct ClientData
         {
             internal readonly uint Uid;
             internal readonly string Token;
             internal readonly IPEndPoint EndPoint;
 
-            internal NewConnectionData(uint uid, ReliableUdpServer.ConnectionRequest request)
+            internal ClientData(uint uid, ReliableUdpServer.ConnectionRequest request)
             {
                 Uid = uid;
                 Token = request.ConnectionData;
@@ -40,46 +40,46 @@ namespace UdpRelay
             }
         }
 
-        internal readonly struct ReadOnlyConcurrentConnectionCollection : IReadOnlyCollection<uint>
+        internal readonly struct ReadOnlyClientCollection : IReadOnlyCollection<uint>
         {
             public int Count
             {
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                get => _connections.Count;
+                get => _clients.Count;
             }
 
-            private readonly ConcurrentDictionary<uint, string> _connections;
+            private readonly ConcurrentDictionary<uint, string> _clients;
 
-            internal ReadOnlyConcurrentConnectionCollection(ConcurrentDictionary<uint, string> connections) =>
-                _connections = connections;
+            internal ReadOnlyClientCollection(ConcurrentDictionary<uint, string> clients) =>
+                _clients = clients;
 
-            internal bool HasConnection(uint connectionUid) =>
-                _connections.ContainsKey(connectionUid);
+            internal bool HasClient(uint clientUid) =>
+                _clients.ContainsKey(clientUid);
 
-            internal string GetConnectionToken(uint connectionUid) =>
-                _connections.TryGetValue(connectionUid, out var token) ? token : throw new KeyNotFoundException($"Connection with id '{connectionUid}' does not exist.");
+            internal string GetClientToken(uint clientUid) =>
+                _clients.TryGetValue(clientUid, out var token) ? token : throw new KeyNotFoundException($"Client with id '{clientUid}' does not exist.");
 
             internal uint[] ToArray()
             {
-                var array = new uint[_connections.Count];
-                _connections.Keys.CopyTo(array, arrayIndex: 0);
+                var array = new uint[_clients.Count];
+                _clients.Keys.CopyTo(array, arrayIndex: 0);
                 return array;
             }
 
-            public IEnumerator<uint> GetEnumerator() => _connections.Keys.GetEnumerator();
+            public IEnumerator<uint> GetEnumerator() => _clients.Keys.GetEnumerator();
             IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
         }
 
         internal int Port
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            get => _udpListener.Port;
+            get => _udpServer.Port;
         }
 
-        internal ReadOnlyConcurrentConnectionCollection Connections
+        internal ReadOnlyClientCollection Clients
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            get => new(_connections);
+            get => new(_clients);
         }
 
         internal int BytesSent
@@ -100,20 +100,20 @@ namespace UdpRelay
 
         internal int BlacklistDurationMs { get; set; }
 
-        internal event Action<NewConnectionData> Connected = delegate { };
+        internal event Action<ClientData> ClientJoined = delegate { };
 
-        internal event Action<uint> Disconnected = delegate { };
+        internal event Action<uint> ClientLeft = delegate { };
 
         internal event Action Stopped = delegate { };
 
-        private readonly ReliableUdpServer _udpListener;
+        private readonly ReliableUdpServer _udpServer;
         private readonly NetReader _dataReader = new();
         private readonly NetWriter _dataWriter = new();
         private readonly HashSet<uint> _routingConnectionsCache = new();
         private readonly Queue<uint> _disconnectQueue = new();
         private readonly Dictionary<string, long> _activeTokens = new();
-        private readonly ConcurrentDictionary<uint, NewConnectionData> _pendingConnections = new();
-        private readonly ConcurrentDictionary<uint, string> _connections = new();
+        private readonly ConcurrentDictionary<uint, ClientData> _pendingConnections = new();
+        private readonly ConcurrentDictionary<uint, string> _clients = new();
         private readonly ConcurrentQueue<uint> _externalDisconnectQueue = new();
 
         private readonly string _connectionKey;
@@ -123,36 +123,36 @@ namespace UdpRelay
 
         private readonly DataTransferAmountCaptureLayer _dataTransferAmountCaptureLayer;
 
-        internal RelayServer(RelayServerStartupData startupData, int maxConnections, ushort protocolKey, int millisecondsTimeStep) : base(millisecondsTimeStep, startupData.WorkerName.Trim(), monitor: true)
+        internal Room(RoomSettings settings, int maxClients, ushort protocolKey, int updateIntervalMs) : base(updateIntervalMs, settings.Name.Trim(), monitor: true)
         {
-            _udpListener = new ReliableUdpServer(maxConnections, startupData.TargetPort, protocolKey);
-            if (!string.IsNullOrWhiteSpace(startupData.UdpEncryptionKey))
-                _udpListener.RegisterDataTransferLayer(new DataTransferXorObfuscationLayer(startupData.UdpEncryptionKey));
+            _udpServer = new ReliableUdpServer(maxClients, settings.TargetPort, protocolKey);
+            if (!string.IsNullOrWhiteSpace(settings.UdpEncryptionKey))
+                _udpServer.RegisterDataTransferLayer(new DataTransferXorObfuscationLayer(settings.UdpEncryptionKey));
 
-            if (startupData.ClientRateLimiter?.KBitPerSecLimit > 0)
+            if (settings.ClientRateLimiter?.KBitPerSecLimit > 0)
             {
-                var layer = new IncomingDataAmountTracker(startupData.ClientRateLimiter.KBitPerSecLimit);
+                var layer = new IncomingDataAmountTracker(settings.ClientRateLimiter.KBitPerSecLimit);
                 layer.LimitExceeded += endpoint =>
                 {
-                    TryAddToBlacklist(endpoint.Address, reason: $"Client data transfer limit ({startupData.ClientRateLimiter.KBitPerSecLimit}KBit/S) exceeded");
+                    TryAddToBlacklist(endpoint.Address, reason: $"Client data transfer limit ({settings.ClientRateLimiter.KBitPerSecLimit}KBit/S) exceeded");
                 };
-                _udpListener.RegisterDataTransferLayer(layer);
+                _udpServer.RegisterDataTransferLayer(layer);
             }
 
-            if (startupData.CaptureDataTransferAmount)
+            if (settings.CaptureDataTransferAmount)
             {
                 _dataTransferAmountCaptureLayer = new DataTransferAmountCaptureLayer();
-                _udpListener.RegisterDataTransferLayer(_dataTransferAmountCaptureLayer);
+                _udpServer.RegisterDataTransferLayer(_dataTransferAmountCaptureLayer);
             }
 
-            _udpListener.ValidateConnection += OnValidateConnection;
-            _udpListener.UnexpectedClientAction += OnUnexpectedClientAction;
-            _udpListener.Connected += OnConnected;
-            _udpListener.ConnectionRejected += OnConnectionRejected;
-            _udpListener.DataReceived += OnDataReceived;
-            _udpListener.Disconnected += OnDisconnected;
+            _udpServer.ValidateConnection += OnValidateConnection;
+            _udpServer.UnexpectedClientAction += OnUnexpectedClientAction;
+            _udpServer.Connected += OnConnected;
+            _udpServer.ConnectionRejected += OnConnectionRejected;
+            _udpServer.DataReceived += OnDataReceived;
+            _udpServer.Disconnected += OnDisconnected;
 
-            _connectionKey = startupData.ConnectionKey;
+            _connectionKey = settings.ConnectionKey;
         }
 
         private bool OnValidateConnection(in ReliableUdpServer.ConnectionRequest connectionRequest)
@@ -186,7 +186,7 @@ namespace UdpRelay
                 return false;
 
             // Port sanity check.
-            if (connectionTokenData.TargetPort != _udpListener.Port)
+            if (connectionTokenData.TargetPort != _udpServer.Port)
             {
                 Logger.LogError($"[{nameof(OnValidateConnection)}] New connection ({connectionRequest.EndPoint}) target port '{connectionTokenData.TargetPort}' is invalid. Actual port is '{Port}'.");
                 return false;
@@ -221,7 +221,7 @@ namespace UdpRelay
         private void OnConnected(uint connectionUid, ReliableUdpServer.ConnectionRequest connectionRequest)
         {
             Logger.LogInfo($"[{nameof(OnConnected)}] New connection '{connectionUid}' from '{connectionRequest.EndPoint}' accepted, waiting for auth request...");
-            _pendingConnections.TryAdd(connectionUid, new NewConnectionData(connectionUid, connectionRequest));
+            _pendingConnections.TryAdd(connectionUid, new ClientData(connectionUid, connectionRequest));
         }
 
         private void OnConnectionRejected(IPEndPoint ipEndPoint, ReliableUdpClient.RejectionReason reason)
@@ -233,9 +233,9 @@ namespace UdpRelay
                 TryAddToBlacklist(ipEndPoint.Address, reason: "Client connection validation failed");
         }
 
-        internal void DropConnection(uint uid)
+        internal void DropClient(uint uid)
         {
-            // NOTE: Internal udp listener is not thread safe, while this function (and class) has to be.
+            // NOTE: Internal udp server is not thread safe, while this function (and class) has to be.
             // Implementing a concurrent queue instead of locks for simplicity.
             _externalDisconnectQueue.Enqueue(uid);
         }
@@ -252,44 +252,44 @@ namespace UdpRelay
                     case ClientMessageType.OnAuth:
                         {
                             // Check pending connections.
-                            if (!_pendingConnections.TryRemove(senderConnectionUid, out var newConnectionData))
+                            if (!_pendingConnections.TryRemove(senderConnectionUid, out var clientData))
                             {
                                 Logger.LogError($"Connection '{senderConnectionUid}' is not an active pending connection. Sometimes it may be normal considering different network issues.");
                                 break;
                             }
 
                             // If connection already exists, we shouldn't handle 'OnAuth' message type.
-                            if (!_connections.TryAdd(senderConnectionUid, newConnectionData.Token))
+                            if (!_clients.TryAdd(senderConnectionUid, clientData.Token))
                             {
                                 TryAddToBlacklist(senderConnectionUid, reason: $"Connection '{senderConnectionUid}' doesn't exist");
                                 break;
                             }
 
-                            // Call a connection event.
-                            Connected(newConnectionData);
+                            // Call the client joined event.
+                            ClientJoined(clientData);
 
                             // Prepare the message for other clients.
                             _dataWriter.SeekZero();
-                            _dataWriter.WriteByte((byte)ServerMessageType.OnJoined);
+                            _dataWriter.WriteByte((byte)RoomMessageType.OnJoined);
                             _dataWriter.WritePackedUInt32(senderConnectionUid);
-                            _dataWriter.WritePackedUInt32((uint)_connections.Count);
-                            foreach (var existedConnection in _connections.Keys)
+                            _dataWriter.WritePackedUInt32((uint)_clients.Count);
+                            foreach (var existedConnection in _clients.Keys)
                                 _dataWriter.WritePackedUInt32(existedConnection);
 
                             // Data to send back.
                             var dataToSend = _dataWriter.AsArraySegment();
 
                             // Send back to all (including sender).
-                            foreach (var existedConnection in _connections.Keys)
-                                _udpListener.SendTo(existedConnection, dataToSend, UdpProtocol.DeliveryMethod.ReliableOrdered);
+                            foreach (var existedConnection in _clients.Keys)
+                                _udpServer.SendTo(existedConnection, dataToSend, UdpProtocol.DeliveryMethod.ReliableOrdered);
 
-                            Logger.LogInfo($"[{nameof(ClientMessageType.OnAuth)}] New connection registered with UID: '{senderConnectionUid}' - '{_connections.Count}' connections now.");
+                            Logger.LogInfo($"[{nameof(ClientMessageType.OnAuth)}] Client '{senderConnectionUid}' joined - '{_clients.Count}' clients now.");
                         }
                         break;
 
                     case ClientMessageType.OnPacket:
                         {
-                            if (!_connections.ContainsKey(senderConnectionUid))
+                            if (!_clients.ContainsKey(senderConnectionUid))
                             {
                                 TryAddToBlacklist(senderConnectionUid, reason: $"Connection '{senderConnectionUid}' doesn't exist");
                                 break;
@@ -311,7 +311,7 @@ namespace UdpRelay
 
                             var userDataPayload = _dataReader.ReadBytesAndSizeNonAlloc();
                             _dataWriter.SeekZero();
-                            _dataWriter.WriteByte((byte)ServerMessageType.OnPacket);
+                            _dataWriter.WriteByte((byte)RoomMessageType.OnPacket);
                             _dataWriter.WritePackedUInt32(senderConnectionUid);
                             _dataWriter.WritePackedUInt32(userDataOpCode);
                             _dataWriter.WriteBytesAndSize(userDataPayload);
@@ -320,7 +320,7 @@ namespace UdpRelay
                             var dataToSend = _dataWriter.AsArraySegment();
 
                             // Send to others.
-                            foreach (var existedConnection in _connections.Keys)
+                            foreach (var existedConnection in _clients.Keys)
                             {
                                 // Should be sent:
                                 // 1. userDataReceiversCount == 0 - send to everyone, except sender.
@@ -330,7 +330,7 @@ namespace UdpRelay
                                     userDataReceiversCount > 0 && _routingConnectionsCache.Contains(existedConnection);
 
                                 if (shouldBeSent)
-                                    _udpListener.SendTo(existedConnection, dataToSend, deliveryMethod);
+                                    _udpServer.SendTo(existedConnection, dataToSend, deliveryMethod);
                             }
                         }
                         break;
@@ -352,21 +352,21 @@ namespace UdpRelay
             if (BlacklistDurationMs < 1)
                 return;
 
-            if (_udpListener.TryGetConnectionEndPoint(connectionUid, out var endPoint))
-                _udpListener.AddAddressToBlacklistIfAbsent(endPoint.Address, millisecondsToAdd: BlacklistDurationMs, reason);
+            if (_udpServer.TryGetConnectionEndPoint(connectionUid, out var endPoint))
+                _udpServer.AddAddressToBlacklistIfAbsent(endPoint.Address, millisecondsToAdd: BlacklistDurationMs, reason);
         }
 
         private void TryAddToBlacklist(IPAddress address, string reason = null)
         {
             if (BlacklistDurationMs >= 1)
-                _udpListener.AddAddressToBlacklistIfAbsent(address, millisecondsToAdd: BlacklistDurationMs, reason);
+                _udpServer.AddAddressToBlacklistIfAbsent(address, millisecondsToAdd: BlacklistDurationMs, reason);
         }
 
         private void OnDisconnected(uint disconnectedConnectionUid)
         {
             _pendingConnections.Remove(disconnectedConnectionUid, out _);
 
-            if (_connections.Remove(disconnectedConnectionUid, out _))
+            if (_clients.Remove(disconnectedConnectionUid, out _))
                 _disconnectQueue.Enqueue(disconnectedConnectionUid);
         }
 
@@ -380,9 +380,9 @@ namespace UdpRelay
                 base.OnUpdate();
 
                 while (_externalDisconnectQueue.TryDequeue(out var connectionToDropUid))
-                    _udpListener.Disconnect(connectionToDropUid);
+                    _udpServer.Disconnect(connectionToDropUid);
 
-                _udpListener.Update();
+                _udpServer.Update();
                 UpdateDisconnectQueue();
                 CleanupExpiredTokens();
 
@@ -419,25 +419,25 @@ namespace UdpRelay
 
             while (_disconnectQueue.TryDequeue(out var disconnectedConnectionUid))
             {
-                // Call the event.
-                Disconnected(disconnectedConnectionUid);
+                // Call the client left event.
+                ClientLeft(disconnectedConnectionUid);
 
                 // Preparing data to send to existed connections.
                 _dataWriter.SeekZero();
-                _dataWriter.WriteByte((byte)ServerMessageType.OnDisconnect);
+                _dataWriter.WriteByte((byte)RoomMessageType.OnDisconnect);
                 _dataWriter.WritePackedUInt32(disconnectedConnectionUid);
 
                 // Data to send to existed connections.
                 var dataToSend = _dataWriter.AsArraySegment();
 
                 // Send to all existed connections.
-                foreach (var existedConnection in _connections.Keys)
-                    _udpListener.SendTo(existedConnection, dataToSend, UdpProtocol.DeliveryMethod.ReliableOrdered);
+                foreach (var existedConnection in _clients.Keys)
+                    _udpServer.SendTo(existedConnection, dataToSend, UdpProtocol.DeliveryMethod.ReliableOrdered);
 
-                Logger.LogInfo($"[{nameof(OnDisconnected)}] '{disconnectedConnectionUid}' connection disconnected - '{_connections.Count}' connections now.");
+                Logger.LogInfo($"[{nameof(OnDisconnected)}] Client '{disconnectedConnectionUid}' left - '{_clients.Count}' clients now.");
             }
 
-            if (AutoCloseOnLastDisconnect && _connections.IsEmpty)
+            if (AutoCloseOnLastDisconnect && _clients.IsEmpty)
                 Stop();
         }
 
@@ -445,7 +445,7 @@ namespace UdpRelay
         {
             base.OnStop();
 
-            _udpListener.Dispose();
+            _udpServer.Dispose();
             Stopped();
         }
     }

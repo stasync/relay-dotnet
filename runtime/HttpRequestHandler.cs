@@ -12,9 +12,9 @@ namespace UdpRelay
 {
     internal sealed class HttpRequestHandler
     {
-        internal delegate void CreateRelayInstanceDelegate(RelayServerStartupData startupData);
+        internal delegate void OpenRoomDelegate(RoomSettings settings);
 
-        internal CreateRelayInstanceDelegate CreateRelayInstance { get; init; }
+        internal OpenRoomDelegate OpenRoom { get; init; }
 
         /// <summary>
         /// Remote services requested a simple api status probe.
@@ -39,19 +39,19 @@ namespace UdpRelay
         }
 
         /// <summary>
-        /// Remote service requested a new relay to be allocated.
+        /// Remote service requested a new room to be opened.
         /// </summary>
-        internal Task<string> HandleNewRelayInstanceRequest(HttpListenerContext context)
+        internal Task<string> HandleNewRoomRequest(HttpListenerContext context)
         {
-            // Handling request such as: GET http://127.0.0.1:8080/api/relay/new/?config={}
+            // Handling request such as: GET http://127.0.0.1:8080/api/room/new/?config={}
             var queryParameters = System.Web.HttpUtility.ParseQueryString(context.Request.Url!.Query);
 
             var configJson = queryParameters["config"];
-            RelayServerStartupData startupData;
+            RoomSettings settings;
             if (string.IsNullOrWhiteSpace(configJson))
             {
                 // Config is not specified within the request - create a default one.
-                startupData = new RelayServerStartupData
+                settings = new RoomSettings
                 {
                     TargetPort = Utils.GetAvailableUdpPort()
                 };
@@ -59,36 +59,36 @@ namespace UdpRelay
             else
             {
                 // Config is specified, trying to parse it.
-                startupData = JsonSerializer.Deserialize<RelayServerStartupData>(configJson);
+                settings = JsonSerializer.Deserialize<RoomSettings>(configJson);
 
                 // The code below has the same logic as the socket api.
                 // 1. Port not specified (0), caller doesn't care about the port, first available port will be used.
                 // 2. Port is specified (!=0), caller do care about the port - making sure its valid and throw otherwise.
 
                 // If target port is not specified, take first available.
-                if (startupData.TargetPort == 0)
-                    startupData.TargetPort = Utils.GetAvailableUdpPort();
+                if (settings.TargetPort == 0)
+                    settings.TargetPort = Utils.GetAvailableUdpPort();
                 else
                 {
                     // Port is specified - making sure its valid.
                     // Check if port ranges.
-                    if (startupData.TargetPort is < 0 or > ushort.MaxValue)
-                        throw new HttpRequestException($"Port {startupData.TargetPort} is invalid.");
+                    if (settings.TargetPort is < 0 or > ushort.MaxValue)
+                        throw new HttpRequestException($"Port {settings.TargetPort} is invalid.");
 
                     // Check if port is available. It's not exactly clear how this app will be started. Port might be unavailable by the time we got here.
                     // NOTE: this scenario is not highly possible.
-                    if (!Utils.IsUdpPortAvailable(startupData.TargetPort))
-                        throw new HttpRequestException($"Port {startupData.TargetPort} is not (or no longer) available at this machine.");
+                    if (!Utils.IsUdpPortAvailable(settings.TargetPort))
+                        throw new HttpRequestException($"Port {settings.TargetPort} is not (or no longer) available at this machine.");
                 }
             }
 
-            if (string.IsNullOrWhiteSpace(startupData.WorkerName))
-                startupData.WorkerName = $"RelayThread_{startupData.TargetPort}";
+            if (string.IsNullOrWhiteSpace(settings.Name))
+                settings.Name = $"Room_{settings.TargetPort}";
 
-            Logger.LogInfo($"   Creating new relay instance with config: {JsonSerializer.Serialize(startupData)}");
+            Logger.LogInfo($"   Opening a room with settings: {JsonSerializer.Serialize(settings)}");
 
-            // Create an actual relay instance.
-            CreateRelayInstance(startupData);
+            // Open the room.
+            OpenRoom(settings);
 
             // Make a response.
             var successResponseData = new
@@ -96,8 +96,11 @@ namespace UdpRelay
                 status = "success",
                 timestamp = DateTime.UtcNow,
                 method = context.Request.HttpMethod,
-                relayPort = startupData.TargetPort,
-                workerName = startupData.WorkerName
+                room = new
+                {
+                    name = settings.Name,
+                    port = settings.TargetPort
+                }
             };
 
             var successResponseJson = JsonSerializer.Serialize(successResponseData);
@@ -107,44 +110,44 @@ namespace UdpRelay
         }
 
         /// <summary>
-        /// Remote service requested to shut down a relay with the specific port, or all currently active relays (if port is not specified).
+        /// Remote service requested to close the room on a specific port, or every room (if port is not specified).
         /// </summary>
-        internal Task<string> HandleShutdownRelayRequest(HttpListenerContext context)
+        internal Task<string> HandleCloseRoomRequest(HttpListenerContext context)
         {
-            // Handling request such as: GET http://127.0.0.1:8080/api/relay/shutdown/?port=<number>
+            // Handling request such as: GET http://127.0.0.1:8080/api/room/close/?port=<number>
             var queryParameters = System.Web.HttpUtility.ParseQueryString(context.Request.Url!.Query);
             var portParameter = queryParameters["port"];
 
-            var closedRelaysInfo = new List<object>();
+            var closedRoomsInfo = new List<object>();
             if (string.IsNullOrWhiteSpace(portParameter))
             {
                 foreach (var worker in Worker.All)
                 {
-                    if (worker is not RelayServer relay)
+                    if (worker is not Room room)
                         continue;
 
-                    closedRelaysInfo.Add(new
+                    closedRoomsInfo.Add(new
                     {
-                        name = relay.Name,
-                        port = relay.Port
+                        name = room.Name,
+                        port = room.Port
                     });
-                    relay.Stop();
+                    room.Stop();
                 }
             }
             else
             {
-                var portToShutDown = int.Parse(portParameter);
+                var portToClose = int.Parse(portParameter);
                 foreach (var worker in Worker.All)
                 {
-                    if (worker is not RelayServer relay || portToShutDown > 0 && relay.Port != portToShutDown)
+                    if (worker is not Room room || portToClose > 0 && room.Port != portToClose)
                         continue;
 
-                    closedRelaysInfo.Add(new
+                    closedRoomsInfo.Add(new
                     {
-                        name = relay.Name,
-                        port = relay.Port
+                        name = room.Name,
+                        port = room.Port
                     });
-                    relay.Stop();
+                    room.Stop();
                 }
             }
 
@@ -154,7 +157,7 @@ namespace UdpRelay
                 status = "success",
                 timestamp = DateTime.UtcNow,
                 method = context.Request.HttpMethod,
-                closedRelays = closedRelaysInfo.ToArray()
+                closedRooms = closedRoomsInfo.ToArray()
             };
 
             var successResponseJson = JsonSerializer.Serialize(successResponseData);
@@ -164,9 +167,9 @@ namespace UdpRelay
         }
 
         /// <summary>
-        /// Remote services requested process system information.
+        /// Remote services requested node information: memory use and running workers.
         /// </summary>
-        internal Task<string> HandleSystemInfoRequest(HttpListenerContext context)
+        internal Task<string> HandleNodeInfoRequest(HttpListenerContext context)
         {
             var gcMemory = GC.GetTotalMemory(forceFullCollection: false);
             var workingSet = System.Diagnostics.Process.GetCurrentProcess().WorkingSet64;
@@ -208,33 +211,33 @@ namespace UdpRelay
         }
 
         /// <summary>
-        /// Remote services requested relay status information.
+        /// Remote services requested room status information.
         /// </summary>
-        internal Task<string> HandleStatusInfoRequest(HttpListenerContext context)
+        internal Task<string> HandleRoomStatusRequest(HttpListenerContext context)
         {
-            // Handling request such as: GET http://127.0.0.1:8080/api/relay/status/?port=<number>
+            // Handling request such as: GET http://127.0.0.1:8080/api/room/status/?port=<number>
             var queryParameters = System.Web.HttpUtility.ParseQueryString(context.Request.Url!.Query);
             var portParameter = queryParameters["port"];
 
             // Specific port was not requested.
             if (string.IsNullOrWhiteSpace(portParameter))
             {
-                var relayWorkersInformation = new List<object>(Worker.All.Count);
+                var roomsInformation = new List<object>(Worker.All.Count);
                 foreach (var worker in Worker.All)
                 {
-                    if (worker is RelayServer relay)
-                        relayWorkersInformation.Add(new
+                    if (worker is Room room)
+                        roomsInformation.Add(new
                         {
-                            name = relay.Name,
-                            port = relay.Port,
-                            connectionsCount = relay.Connections.Count,
-                            connections = relay.Connections.ToArray(),
-                            bytesSent = relay.BytesSent,
-                            bytesReceived = relay.BytesReceived
+                            name = room.Name,
+                            port = room.Port,
+                            clientsCount = room.Clients.Count,
+                            clients = room.Clients.ToArray(),
+                            bytesSent = room.BytesSent,
+                            bytesReceived = room.BytesReceived
                         });
                 }
 
-                Logger.LogInfo($"   Relay Workers Count: {relayWorkersInformation.Count}/{Worker.All.Count}");
+                Logger.LogInfo($"   Rooms Count: {roomsInformation.Count}/{Worker.All.Count}");
 
                 // Make a response.
                 var successResponseData = new
@@ -242,8 +245,8 @@ namespace UdpRelay
                     status = "success",
                     timestamp = DateTime.UtcNow,
                     method = context.Request.HttpMethod,
-                    relayWorkersCount = relayWorkersInformation.Count,
-                    relayWorkers = relayWorkersInformation.ToArray()
+                    roomsCount = roomsInformation.Count,
+                    rooms = roomsInformation.ToArray()
                 };
 
                 var successResponseJson = JsonSerializer.Serialize(successResponseData);
@@ -252,25 +255,25 @@ namespace UdpRelay
                 return Task.FromResult(successResponseJson);
             }
 
-            // Specific port was requested - looking for target relay.
+            // Specific port was requested - looking for the target room.
             var targetPort = int.Parse(portParameter);
 
-            Logger.LogInfo($"   Looking for relay with port '{targetPort}'.");
+            Logger.LogInfo($"   Looking for room with port '{targetPort}'.");
 
-            // Looking for a target relay server.
-            var targetRelayWorker = default(RelayServer);
+            // Looking for the target room.
+            var targetRoom = default(Room);
             foreach (var worker in Worker.All)
             {
-                if (worker is not RelayServer relay || relay.Port != targetPort)
+                if (worker is not Room room || room.Port != targetPort)
                     continue;
 
-                targetRelayWorker = relay;
+                targetRoom = room;
                 break;
             }
 
-            // Throw if worker was not found.
-            if (targetRelayWorker == null)
-                throw new HttpRequestException($"Unable to find relay worker with port {targetPort}.");
+            // Throw if the room was not found.
+            if (targetRoom == null)
+                throw new HttpRequestException($"Unable to find room with port {targetPort}.");
 
             // Success response.
             {
@@ -279,14 +282,14 @@ namespace UdpRelay
                     status = "success",
                     timestamp = DateTime.UtcNow,
                     method = context.Request.HttpMethod,
-                    relayWorker = new
+                    room = new
                     {
-                        name = targetRelayWorker.Name,
-                        port = targetRelayWorker.Port,
-                        connectionsCount = targetRelayWorker.Connections.Count,
-                        connections = targetRelayWorker.Connections.ToArray(),
-                        bytesSent = targetRelayWorker.BytesSent,
-                        bytesReceived = targetRelayWorker.BytesReceived
+                        name = targetRoom.Name,
+                        port = targetRoom.Port,
+                        clientsCount = targetRoom.Clients.Count,
+                        clients = targetRoom.Clients.ToArray(),
+                        bytesSent = targetRoom.BytesSent,
+                        bytesReceived = targetRoom.BytesReceived
                     }
                 };
 
@@ -298,48 +301,48 @@ namespace UdpRelay
         }
 
         /// <summary>
-        /// Remote services requested to check if the connection with a specific id is connected.
+        /// Remote services requested to check whether a client with a specific id is in a room.
         /// </summary>
-        internal Task<string> HandleCheckRelayConnectionRequest(HttpListenerContext context)
+        internal Task<string> HandleHasClientRequest(HttpListenerContext context)
         {
-            // Handling request such as: GET http://127.0.0.1:8080/api/relay/has_connection/?port=<number>&uid=<number>
+            // Handling request such as: GET http://127.0.0.1:8080/api/room/has_client/?port=<number>&uid=<number>
             var queryParameters = System.Web.HttpUtility.ParseQueryString(context.Request.Url!.Query);
             var portParameter = queryParameters["port"];
-            var connectionUidParameter = queryParameters["uid"];
+            var clientUidParameter = queryParameters["uid"];
 
             if (string.IsNullOrWhiteSpace(portParameter))
                 throw new HttpRequestException("Port is not specified.");
 
-            if (string.IsNullOrWhiteSpace(connectionUidParameter))
-                throw new HttpRequestException("Connection UID is not specified.");
+            if (string.IsNullOrWhiteSpace(clientUidParameter))
+                throw new HttpRequestException("Client UID is not specified.");
 
             var targetPort = int.Parse(portParameter);
             if (targetPort == 0)
                 throw new HttpRequestException("Target port cannot be 0.");
 
-            var connectionToCheck = uint.Parse(connectionUidParameter);
+            var clientToCheck = uint.Parse(clientUidParameter);
 
-            // Looking for a target relay server.
-            var targetRelayWorker = default(RelayServer);
+            // Looking for the target room.
+            var targetRoom = default(Room);
             foreach (var worker in Worker.All)
             {
-                if (worker is not RelayServer relay || relay.Port != targetPort)
+                if (worker is not Room room || room.Port != targetPort)
                     continue;
 
-                targetRelayWorker = relay;
+                targetRoom = room;
                 break;
             }
 
-            // Throw if worker was not found.
-            if (targetRelayWorker == null)
-                throw new HttpRequestException($"Unable to find relay worker with port {targetPort}.");
+            // Throw if the room was not found.
+            if (targetRoom == null)
+                throw new HttpRequestException($"Unable to find room with port {targetPort}.");
 
             var successResponseData = new
             {
                 status = "success",
                 timestamp = DateTime.UtcNow,
                 method = context.Request.HttpMethod,
-                hasConnection = targetRelayWorker.Connections.HasConnection(connectionToCheck)
+                hasClient = targetRoom.Clients.HasClient(clientToCheck)
             };
 
             var successResponseJson = JsonSerializer.Serialize(successResponseData);
@@ -349,15 +352,15 @@ namespace UdpRelay
         }
 
         /// <summary>
-        /// Remote services requested to get a connection data with a specific id.
+        /// Remote services requested to find a client by its id, its token, or both.
         /// </summary>
-        internal Task<string> HandleGetRelayConnectionDataRequest(HttpListenerContext context)
+        internal Task<string> HandleGetClientRequest(HttpListenerContext context)
         {
-            // Handling request such as: GET http://127.0.0.1:8080/api/relay/get_connection_data/?port=<number>&uid=<number>&token=<string>
+            // Handling request such as: GET http://127.0.0.1:8080/api/room/get_client/?port=<number>&uid=<number>&token=<string>
             var queryParameters = System.Web.HttpUtility.ParseQueryString(context.Request.Url!.Query);
             var portParameter = queryParameters["port"];
-            var connectionUidParameter = queryParameters["uid"];
-            var connectionTokenParameter = queryParameters["token"];
+            var clientUidParameter = queryParameters["uid"];
+            var tokenParameter = queryParameters["token"];
 
             if (string.IsNullOrWhiteSpace(portParameter))
                 throw new HttpRequestException("Port is not specified.");
@@ -366,78 +369,78 @@ namespace UdpRelay
             if (targetPort == 0)
                 throw new HttpRequestException("Target port cannot be 0.");
 
-            if (string.IsNullOrWhiteSpace(connectionUidParameter) && string.IsNullOrWhiteSpace(connectionTokenParameter))
-                throw new HttpRequestException("Either connection uid of token has to be specified.");
+            if (string.IsNullOrWhiteSpace(clientUidParameter) && string.IsNullOrWhiteSpace(tokenParameter))
+                throw new HttpRequestException("Either client uid or token has to be specified.");
 
-            // Looking for a target relay server.
-            var targetRelayWorker = default(RelayServer);
+            // Looking for the target room.
+            var targetRoom = default(Room);
             foreach (var worker in Worker.All)
             {
-                if (worker is not RelayServer relay || relay.Port != targetPort)
+                if (worker is not Room room || room.Port != targetPort)
                     continue;
 
-                targetRelayWorker = relay;
+                targetRoom = room;
                 break;
             }
 
-            // Throw if worker was not found.
-            if (targetRelayWorker == null)
-                throw new HttpRequestException($"Unable to find relay worker with port {targetPort}.");
+            // Throw if the room was not found.
+            if (targetRoom == null)
+                throw new HttpRequestException($"Unable to find room with port {targetPort}.");
 
             // Final filtered connection id.
-            var resultConnectionUid = 0u;
+            var resultClientUid = 0u;
 
             // 1. Uid is a primary parameter - check if it's defined.
-            if (!string.IsNullOrWhiteSpace(connectionUidParameter))
+            if (!string.IsNullOrWhiteSpace(clientUidParameter))
             {
                 // Parse connection uid.
-                var connectionUidToCheck = uint.Parse(connectionUidParameter);
+                var clientUidToCheck = uint.Parse(clientUidParameter);
 
                 // Check if the connection actually registered.
-                if (!targetRelayWorker.Connections.HasConnection(connectionUidToCheck))
-                    throw new HttpRequestException($"Connection with id {connectionUidToCheck} doesn't exist on port {targetPort}.");
+                if (!targetRoom.Clients.HasClient(clientUidToCheck))
+                    throw new HttpRequestException($"Client with id {clientUidToCheck} doesn't exist on port {targetPort}.");
 
                 // Check if additional query parameter (requestData) is defined.
-                if (!string.IsNullOrWhiteSpace(connectionTokenParameter))
+                if (!string.IsNullOrWhiteSpace(tokenParameter))
                 {
-                    if (targetRelayWorker.Connections.GetConnectionToken(connectionUidToCheck) != connectionTokenParameter)
-                        throw new InvalidOperationException($"Connection {connectionUidToCheck} data doesn't match the requested parameter {connectionTokenParameter}.");
+                    if (targetRoom.Clients.GetClientToken(clientUidToCheck) != tokenParameter)
+                        throw new InvalidOperationException($"Client {clientUidToCheck} joined with a different token.");
                 }
 
-                resultConnectionUid = connectionUidToCheck;
+                resultClientUid = clientUidToCheck;
             }
             // 2. Uid is not defined.
             else
             {
                 // Check if the secondary parameter (request_data) is.
-                if (!string.IsNullOrWhiteSpace(connectionTokenParameter))
+                if (!string.IsNullOrWhiteSpace(tokenParameter))
                 {
                     // Iterate over the all connections and chek if the request data matches the one that was provided in query.
-                    foreach (var connectionUid in targetRelayWorker.Connections)
+                    foreach (var clientUid in targetRoom.Clients)
                     {
-                        var connectionToken = targetRelayWorker.Connections.GetConnectionToken(connectionUid);
-                        if (string.IsNullOrWhiteSpace(connectionToken))
+                        var clientToken = targetRoom.Clients.GetClientToken(clientUid);
+                        if (string.IsNullOrWhiteSpace(clientToken))
                             continue;
 
-                        if (connectionToken != connectionTokenParameter)
+                        if (clientToken != tokenParameter)
                             continue;
 
-                        resultConnectionUid = connectionUid;
+                        resultClientUid = clientUid;
                         break;
                     }
                 }
             }
 
             // Check if the connection actually registered.
-            if (resultConnectionUid == 0u)
-                throw new HttpRequestException($"Unable to find applicable connection on port {targetPort} using query {context.Request.Url!.Query}.");
+            if (resultClientUid == 0u)
+                throw new HttpRequestException($"Unable to find a matching client on port {targetPort} using query {context.Request.Url!.Query}.");
 
             var successResponseData = new
             {
                 status = "success",
                 timestamp = DateTime.UtcNow,
                 method = context.Request.HttpMethod,
-                connectionUid = resultConnectionUid
+                clientUid = resultClientUid
             };
 
             var successResponseJson = JsonSerializer.Serialize(successResponseData);
@@ -447,48 +450,48 @@ namespace UdpRelay
         }
 
         /// <summary>
-        /// Remote services requested to drop a specific connection on a specific port.
+        /// Remote services requested to drop a client from the room on a specific port.
         /// </summary>
-        internal Task<string> HandleDropRelayConnectionRequest(HttpListenerContext context)
+        internal Task<string> HandleDropClientRequest(HttpListenerContext context)
         {
-            // Handling request such as: GET http://127.0.0.1:8080/api/relay/drop_connection/?port=<number>&uid=<number>
+            // Handling request such as: GET http://127.0.0.1:8080/api/room/drop_client/?port=<number>&uid=<number>
             var queryParameters = System.Web.HttpUtility.ParseQueryString(context.Request.Url!.Query);
             var portParameter = queryParameters["port"];
-            var connectionUidParameter = queryParameters["uid"];
+            var clientUidParameter = queryParameters["uid"];
 
             if (string.IsNullOrWhiteSpace(portParameter))
                 throw new HttpRequestException("Port is not specified.");
 
-            if (string.IsNullOrWhiteSpace(connectionUidParameter))
-                throw new HttpRequestException("Connection UID is not specified.");
+            if (string.IsNullOrWhiteSpace(clientUidParameter))
+                throw new HttpRequestException("Client UID is not specified.");
 
             var targetPort = int.Parse(portParameter);
             if (targetPort == 0)
                 throw new HttpRequestException("Target port cannot be 0.");
 
-            var connectionToDrop = uint.Parse(connectionUidParameter);
+            var clientToDrop = uint.Parse(clientUidParameter);
 
-            // Looking for a target relay server.
-            var targetRelayWorker = default(RelayServer);
+            // Looking for the target room.
+            var targetRoom = default(Room);
             foreach (var worker in Worker.All)
             {
-                if (worker is not RelayServer relay || relay.Port != targetPort)
+                if (worker is not Room room || room.Port != targetPort)
                     continue;
 
-                targetRelayWorker = relay;
+                targetRoom = room;
                 break;
             }
 
-            // Throw if worker was not found.
-            if (targetRelayWorker == null)
-                throw new HttpRequestException($"Unable to find relay worker with port {targetPort}.");
+            // Throw if the room was not found.
+            if (targetRoom == null)
+                throw new HttpRequestException($"Unable to find room with port {targetPort}.");
 
-            foreach (var connUid in targetRelayWorker.Connections)
+            foreach (var clientUid in targetRoom.Clients)
             {
-                if (connUid != connectionToDrop)
+                if (clientUid != clientToDrop)
                     continue;
 
-                targetRelayWorker.DropConnection(connectionToDrop);
+                targetRoom.DropClient(clientToDrop);
 
                 var successResponseData = new
                 {
@@ -503,8 +506,8 @@ namespace UdpRelay
                 return Task.FromResult(successResponseJson);
             }
 
-            // Throw if connection wasn't found.
-            throw new HttpRequestException($"Unable to find connection with uid {connectionToDrop} on port {targetPort}.");
+            // Throw if the client wasn't found.
+            throw new HttpRequestException($"Unable to find client with uid {clientToDrop} on port {targetPort}.");
         }
     }
 }

@@ -8,9 +8,9 @@ namespace UdpRelay.Tests
         [Fact]
         public void ConfigSerializationTest()
         {
-            var config = new RelayInstanceStartupConfig();
+            var config = new TestRoomSettings();
             var json = JsonSerializer.Serialize(config);
-            var deserializedConfig = JsonSerializer.Deserialize<RelayInstanceStartupConfig>(json);
+            var deserializedConfig = JsonSerializer.Deserialize<TestRoomSettings>(json);
             Assert.True(config.EqualsTo(deserializedConfig));
         }
 
@@ -20,14 +20,14 @@ namespace UdpRelay.Tests
             var data = new
             {
                 TargetPort = 1234,
-                MaxConnectionCount = 8,
+                MaxClientCount = 8,
                 ConnectionKey = "hello_world"
             };
 
             var json = JsonSerializer.Serialize(data);
-            var deserializedConfig = JsonSerializer.Deserialize<RelayInstanceStartupConfig>(json);
+            var deserializedConfig = JsonSerializer.Deserialize<TestRoomSettings>(json);
             Assert.Equal(data.TargetPort, deserializedConfig.TargetPort);
-            Assert.Equal(data.MaxConnectionCount, deserializedConfig.MaxConnectionCount);
+            Assert.Equal(data.MaxClientCount, deserializedConfig.MaxClientCount);
             Assert.Equal(data.ConnectionKey, deserializedConfig.ConnectionKey);
         }
 
@@ -37,14 +37,14 @@ namespace UdpRelay.Tests
             var data = new
             {
                 target_port = 1234,
-                max_connections_count = 8,
+                max_clients_count = 8,
                 connection_key = "hello_world"
             };
 
             var json = JsonSerializer.Serialize(data);
-            var deserializedConfig = JsonSerializer.Deserialize<RelayInstanceStartupConfig>(json);
+            var deserializedConfig = JsonSerializer.Deserialize<TestRoomSettings>(json);
             Assert.NotEqual(data.target_port, deserializedConfig.TargetPort);
-            Assert.NotEqual(data.max_connections_count, deserializedConfig.MaxConnectionCount);
+            Assert.NotEqual(data.max_clients_count, deserializedConfig.MaxClientCount);
             Assert.NotEqual(data.connection_key, deserializedConfig.ConnectionKey);
         }
 
@@ -58,13 +58,13 @@ namespace UdpRelay.Tests
             };
 
             var json = JsonSerializer.Serialize(data);
-            var defaultConfig = new RelayInstanceStartupConfig();
-            var deserializedConfig = JsonSerializer.Deserialize<RelayInstanceStartupConfig>(json);
+            var defaultConfig = new TestRoomSettings();
+            var deserializedConfig = JsonSerializer.Deserialize<TestRoomSettings>(json);
             Assert.NotEqual(data.target_port, deserializedConfig.TargetPort);
             Assert.NotEqual(data.connection_key, deserializedConfig.ConnectionKey);
 
             // Make sure it has default state.
-            Assert.Equal(defaultConfig.MaxConnectionCount, deserializedConfig.MaxConnectionCount);
+            Assert.Equal(defaultConfig.MaxClientCount, deserializedConfig.MaxClientCount);
         }
 
         [Fact]
@@ -72,84 +72,84 @@ namespace UdpRelay.Tests
         {
             var data = new
             {
-                WorkerName = "hello_world",
+                Name = "hello_world",
                 TargetPort = 1234,
-                MaxConnectionCount = 8
+                MaxClientCount = 8
             };
 
             // Internal values won't be serialized.
             var json = JsonSerializer.Serialize(data);
-            var deserializedConfig = JsonSerializer.Deserialize<NoJsonIncludeRelayInstanceStartupConfig>(json);
-            var defaultConfig = new RelayInstanceStartupConfig();
-            Assert.Equal(defaultConfig.WorkerName, deserializedConfig.WorkerName);
+            var deserializedConfig = JsonSerializer.Deserialize<NoJsonIncludeTestRoomSettings>(json);
+            var defaultConfig = new TestRoomSettings();
+            Assert.Equal(defaultConfig.Name, deserializedConfig.Name);
             Assert.Equal(defaultConfig.TargetPort, deserializedConfig.TargetPort);
-            Assert.Equal(defaultConfig.MaxConnectionCount, deserializedConfig.MaxConnectionCount);
+            Assert.Equal(defaultConfig.MaxClientCount, deserializedConfig.MaxClientCount);
         }
 
         [Fact]
         public void EmptyJsonDeserializationTest()
         {
             var json = "{}";
-            var deserializedConfig = JsonSerializer.Deserialize<RelayInstanceStartupConfig>(json);
-            var defaultConfig = new RelayInstanceStartupConfig();
+            var deserializedConfig = JsonSerializer.Deserialize<TestRoomSettings>(json);
+            var defaultConfig = new TestRoomSettings();
             Assert.True(defaultConfig.EqualsTo(deserializedConfig));
         }
 
         [Fact]
         public void NullValuesDeserializationTest()
         {
-            var json = "{\"WorkerName\": null, \"ConnectionKey\": null}";
-            var deserializedConfig = JsonSerializer.Deserialize<RelayInstanceStartupConfig>(json);
-            Assert.Null(deserializedConfig.WorkerName);
+            var json = "{\"Name\": null, \"ConnectionKey\": null}";
+            var deserializedConfig = JsonSerializer.Deserialize<TestRoomSettings>(json);
+            Assert.Null(deserializedConfig.Name);
             Assert.Null(deserializedConfig.ConnectionKey);
         }
 
         [Fact]
         public void NumericBoundariesTest()
         {
-            var config = new RelayInstanceStartupConfig
+            var config = new TestRoomSettings
             {
                 TargetPort = int.MaxValue,
-                MaxConnectionCount = 0,
+                MaxClientCount = 0,
                 ProtocolKey = ushort.MaxValue,
-                ThreadMillisecondsTimeStep = int.MinValue
+                UpdateIntervalMs = int.MinValue
             };
 
             var json = JsonSerializer.Serialize(config);
-            var deserializedConfig = JsonSerializer.Deserialize<RelayInstanceStartupConfig>(json);
+            var deserializedConfig = JsonSerializer.Deserialize<TestRoomSettings>(json);
             Assert.Equal(int.MaxValue, deserializedConfig.TargetPort);
-            Assert.Equal(0, deserializedConfig.MaxConnectionCount);
+            Assert.Equal(0, deserializedConfig.MaxClientCount);
             Assert.Equal(ushort.MaxValue, deserializedConfig.ProtocolKey);
-            Assert.Equal(int.MinValue, deserializedConfig.ThreadMillisecondsTimeStep);
+            Assert.Equal(int.MinValue, deserializedConfig.UpdateIntervalMs);
         }
 
         [Fact]
         public void SpecialCharactersInStringsTest()
         {
-            var config = new RelayInstanceStartupConfig
+            var config = new TestRoomSettings
             {
-                WorkerName = "worker\"with\\special/chars\n\r\t",
+                Name = "worker\"with\\special/chars\n\r\t",
                 ConnectionKey = "key!@#$%^&*()_+-=[]{}|;':\",./<>?~`"
             };
 
             var json = JsonSerializer.Serialize(config);
-            var deserializedConfig = JsonSerializer.Deserialize<RelayInstanceStartupConfig>(json);
-            Assert.Equal(config.WorkerName, deserializedConfig.WorkerName);
+            var deserializedConfig = JsonSerializer.Deserialize<TestRoomSettings>(json);
+            Assert.Equal(config.Name, deserializedConfig.Name);
             Assert.Equal(config.ConnectionKey, deserializedConfig.ConnectionKey);
         }
 
         [Fact]
         public void UnicodeStringsTest()
         {
-            var config = new RelayInstanceStartupConfig
+            var config = new TestRoomSettings
             {
-                WorkerName = "worker_世界_🌍",
+                Name = "worker_世界_🌍",
                 ConnectionKey = "ключ_клавиша_日本語"
             };
 
             var json = JsonSerializer.Serialize(config);
-            var deserializedConfig = JsonSerializer.Deserialize<RelayInstanceStartupConfig>(json);
-            Assert.Equal(config.WorkerName, deserializedConfig.WorkerName);
+            var deserializedConfig = JsonSerializer.Deserialize<TestRoomSettings>(json);
+            Assert.Equal(config.Name, deserializedConfig.Name);
             Assert.Equal(config.ConnectionKey, deserializedConfig.ConnectionKey);
         }
 
@@ -157,27 +157,27 @@ namespace UdpRelay.Tests
         public void VeryLongStringsTest()
         {
             var longString = new string('A', 10000);
-            var config = new RelayInstanceStartupConfig
+            var config = new TestRoomSettings
             {
-                WorkerName = longString,
+                Name = longString,
                 ConnectionKey = longString
             };
 
             var json = JsonSerializer.Serialize(config);
-            var deserializedConfig = JsonSerializer.Deserialize<RelayInstanceStartupConfig>(json);
-            Assert.Equal(longString, deserializedConfig.WorkerName);
+            var deserializedConfig = JsonSerializer.Deserialize<TestRoomSettings>(json);
+            Assert.Equal(longString, deserializedConfig.Name);
             Assert.Equal(longString, deserializedConfig.ConnectionKey);
         }
 
         [Fact]
         public void CaseSensitivityTest()
         {
-            var json = "{\"workerName\": \"test\", \"targetPort\": 9999}";
-            var deserializedConfig = JsonSerializer.Deserialize<RelayInstanceStartupConfig>(json);
-            var defaultConfig = new RelayInstanceStartupConfig();
+            var json = "{\"name\": \"test\", \"targetPort\": 9999}";
+            var deserializedConfig = JsonSerializer.Deserialize<TestRoomSettings>(json);
+            var defaultConfig = new TestRoomSettings();
 
             // JSON deserialization is case-sensitive by default
-            Assert.Equal(defaultConfig.WorkerName, deserializedConfig.WorkerName);
+            Assert.Equal(defaultConfig.Name, deserializedConfig.Name);
             Assert.Equal(defaultConfig.TargetPort, deserializedConfig.TargetPort);
         }
 
@@ -185,7 +185,7 @@ namespace UdpRelay.Tests
         public void ExtraFieldsIgnoredTest()
         {
             var json = "{\"TargetPort\": 8080, \"UnknownField\": \"ignored\", \"AnotherField\": 12345}";
-            var deserializedConfig = JsonSerializer.Deserialize<RelayInstanceStartupConfig>(json);
+            var deserializedConfig = JsonSerializer.Deserialize<TestRoomSettings>(json);
             Assert.Equal(8080, deserializedConfig.TargetPort);
         }
 
@@ -194,7 +194,7 @@ namespace UdpRelay.Tests
         {
             var invalidJson = "{\"TargetPort\": \"not a number\"}";
             Assert.Throws<JsonException>(() =>
-                JsonSerializer.Deserialize<RelayInstanceStartupConfig>(invalidJson));
+                JsonSerializer.Deserialize<TestRoomSettings>(invalidJson));
         }
 
         [Fact]
@@ -202,7 +202,7 @@ namespace UdpRelay.Tests
         {
             var malformedJson = "{\"TargetPort\": 8080,}";
             Assert.Throws<JsonException>(() =>
-                JsonSerializer.Deserialize<RelayInstanceStartupConfig>(malformedJson));
+                JsonSerializer.Deserialize<TestRoomSettings>(malformedJson));
         }
 
         [Fact]
@@ -210,29 +210,29 @@ namespace UdpRelay.Tests
         {
             var configs = new[]
             {
-                new RelayInstanceStartupConfig
+                new TestRoomSettings
                 {
-                    WorkerName = "worker1",
+                    Name = "worker1",
                     TargetPort = 8080,
-                    MaxConnectionCount = 10
+                    MaxClientCount = 10
                 },
-                new RelayInstanceStartupConfig
+                new TestRoomSettings
                 {
-                    WorkerName = "worker2",
+                    Name = "worker2",
                     TargetPort = 9000,
                     ConnectionKey = "secret123"
                 },
-                new RelayInstanceStartupConfig
+                new TestRoomSettings
                 {
                     ProtocolKey = 1234,
-                    ThreadMillisecondsTimeStep = 100
+                    UpdateIntervalMs = 100
                 }
             };
 
             foreach (var config in configs)
             {
                 var json = JsonSerializer.Serialize(config);
-                var deserialized = JsonSerializer.Deserialize<RelayInstanceStartupConfig>(json);
+                var deserialized = JsonSerializer.Deserialize<TestRoomSettings>(json);
                 Assert.True(config.EqualsTo(deserialized));
             }
         }
@@ -240,108 +240,108 @@ namespace UdpRelay.Tests
         [Fact]
         public void EmptyStringsPreservedTest()
         {
-            var config = new RelayInstanceStartupConfig
+            var config = new TestRoomSettings
             {
-                WorkerName = "",
+                Name = "",
                 ConnectionKey = ""
             };
 
             var json = JsonSerializer.Serialize(config);
-            var deserializedConfig = JsonSerializer.Deserialize<RelayInstanceStartupConfig>(json);
-            Assert.Equal("", deserializedConfig.WorkerName);
+            var deserializedConfig = JsonSerializer.Deserialize<TestRoomSettings>(json);
+            Assert.Equal("", deserializedConfig.Name);
             Assert.Equal("", deserializedConfig.ConnectionKey);
         }
 
         [Fact]
         public void WhitespaceStringsPreservedTest()
         {
-            var config = new RelayInstanceStartupConfig
+            var config = new TestRoomSettings
             {
-                WorkerName = "   \t\n   ",
+                Name = "   \t\n   ",
                 ConnectionKey = "  key  "
             };
 
             var json = JsonSerializer.Serialize(config);
-            var deserializedConfig = JsonSerializer.Deserialize<RelayInstanceStartupConfig>(json);
-            Assert.Equal(config.WorkerName, deserializedConfig.WorkerName);
+            var deserializedConfig = JsonSerializer.Deserialize<TestRoomSettings>(json);
+            Assert.Equal(config.Name, deserializedConfig.Name);
             Assert.Equal(config.ConnectionKey, deserializedConfig.ConnectionKey);
         }
 
         [Fact]
         public void NegativePortValuesTest()
         {
-            var config = new RelayInstanceStartupConfig
+            var config = new TestRoomSettings
             {
                 TargetPort = -1,
-                MaxConnectionCount = -100,
-                ThreadMillisecondsTimeStep = -50
+                MaxClientCount = -100,
+                UpdateIntervalMs = -50
             };
 
             var json = JsonSerializer.Serialize(config);
-            var deserializedConfig = JsonSerializer.Deserialize<RelayInstanceStartupConfig>(json);
+            var deserializedConfig = JsonSerializer.Deserialize<TestRoomSettings>(json);
             Assert.Equal(-1, deserializedConfig.TargetPort);
-            Assert.Equal(-100, deserializedConfig.MaxConnectionCount);
-            Assert.Equal(-50, deserializedConfig.ThreadMillisecondsTimeStep);
+            Assert.Equal(-100, deserializedConfig.MaxClientCount);
+            Assert.Equal(-50, deserializedConfig.UpdateIntervalMs);
         }
 
         [Fact]
         public void ZeroValuesTest()
         {
-            var config = new RelayInstanceStartupConfig
+            var config = new TestRoomSettings
             {
                 TargetPort = 0,
-                MaxConnectionCount = 0,
+                MaxClientCount = 0,
                 ProtocolKey = 0,
-                ThreadMillisecondsTimeStep = 0
+                UpdateIntervalMs = 0
             };
 
             var json = JsonSerializer.Serialize(config);
-            var deserializedConfig = JsonSerializer.Deserialize<RelayInstanceStartupConfig>(json);
+            var deserializedConfig = JsonSerializer.Deserialize<TestRoomSettings>(json);
             Assert.Equal(0, deserializedConfig.TargetPort);
-            Assert.Equal(0, deserializedConfig.MaxConnectionCount);
+            Assert.Equal(0, deserializedConfig.MaxClientCount);
             Assert.Equal(0, deserializedConfig.ProtocolKey);
-            Assert.Equal(0, deserializedConfig.ThreadMillisecondsTimeStep);
+            Assert.Equal(0, deserializedConfig.UpdateIntervalMs);
         }
 
-        private sealed class RelayInstanceStartupConfig
+        private sealed class TestRoomSettings
         {
-            [JsonInclude] internal string WorkerName { get; set; }
+            [JsonInclude] internal string Name { get; set; }
             [JsonInclude] internal int TargetPort { get; set; }
-            [JsonInclude] internal int MaxConnectionCount { get; set; } = 16;
+            [JsonInclude] internal int MaxClientCount { get; set; } = 16;
             [JsonInclude] internal ushort ProtocolKey { get; set; }
             [JsonInclude] internal string ConnectionKey { get; set; } = string.Empty;
-            [JsonInclude] internal int ThreadMillisecondsTimeStep { get; set; } = 50;
+            [JsonInclude] internal int UpdateIntervalMs { get; set; } = 50;
 
-            public bool EqualsTo(RelayInstanceStartupConfig other)
+            public bool EqualsTo(TestRoomSettings other)
             {
                 if (other is null)
                     return false;
 
                 return
-                    WorkerName == other.WorkerName &&
+                    Name == other.Name &&
                     TargetPort == other.TargetPort &&
-                    MaxConnectionCount == other.MaxConnectionCount &&
+                    MaxClientCount == other.MaxClientCount &&
                     ProtocolKey == other.ProtocolKey &&
                     ConnectionKey == other.ConnectionKey &&
-                    ThreadMillisecondsTimeStep == other.ThreadMillisecondsTimeStep;
+                    UpdateIntervalMs == other.UpdateIntervalMs;
             }
         }
 
-        private sealed class NoJsonIncludeRelayInstanceStartupConfig
+        private sealed class NoJsonIncludeTestRoomSettings
         {
-            internal string WorkerName { get; init; }
+            internal string Name { get; init; }
             internal int TargetPort { get; init; }
-            internal int MaxConnectionCount { get; init; } = 16;
+            internal int MaxClientCount { get; init; } = 16;
 
-            public bool EqualsTo(NoJsonIncludeRelayInstanceStartupConfig other)
+            public bool EqualsTo(NoJsonIncludeTestRoomSettings other)
             {
                 if (other is null)
                     return false;
 
                 return
-                    WorkerName == other.WorkerName &&
+                    Name == other.Name &&
                     TargetPort == other.TargetPort &&
-                    MaxConnectionCount == other.MaxConnectionCount;
+                    MaxClientCount == other.MaxClientCount;
             }
         }
     }
