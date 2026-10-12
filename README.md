@@ -90,6 +90,12 @@ For a quick local test without tokens, also open a room at startup:
 sh startup.sh -roomPort 7777
 ```
 
+Then join it from two other terminals with the [example chat client](examples/chat_client/Program.cs), and type messages in either one:
+
+```bash
+dotnet run --project examples/chat_client -- 127.0.0.1 7777
+```
+
 ### Launch arguments
 
 Launch arguments configure the node and apply to all of its rooms. They use a single dash: `-name value`. Each one can also be set with a file named `<name>.cmdparam` next to `relay.dll`, containing just the value.
@@ -129,7 +135,7 @@ The backend controls a node through a REST API. Every response is JSON, and each
 
 Errors use the matching status code (400, 404, 405, 409, or 500 for anything unexpected), with the reason in an `error` field.
 
-For each endpoint's parameters, responses and errors, see the [HTTP API reference](docs/http-api.md).
+[Using the HTTP API](docs/http-api-guide.md) walks through a room's whole life, from opening it to closing it, with `curl` and C# examples. For each endpoint's parameters, responses and errors, see the [HTTP API reference](docs/http-api.md).
 
 ### Opening a room
 
@@ -224,6 +230,8 @@ The room blocks the sender's IP address if a message is malformed, has an unknow
 
 ### Example
 
+This is the core of a client. [`examples/chat_client`](examples/chat_client/Program.cs) is a complete one you can run: it joins a room, sends each line you type to the other clients, and prints what they send.
+
 ```csharp
 using System;
 using System.Net;
@@ -309,7 +317,7 @@ To format the code, run `sh dotnet_format.sh`.
 
 GitHub Actions runs [`ci.yml`](.github/workflows/ci.yml) on every push:
 
-- **Any branch:** runs the tests.
+- **Any branch:** runs the tests and builds the example client.
 - **`main`:** runs the tests, builds the relay in release mode, and publishes it as the [`latest-build`](https://github.com/stasync/relay-dotnet/releases/tag/latest-build) pre-release. Each push to `main` replaces that release and moves its tag to the new commit.
 
 The release contains one file, `relay-latest-build-net10.0.zip`. Unzip it and run `dotnet relay.dll -httpListenerUrl http://127.0.0.1:8080/` on a machine with the .NET 10 runtime. Other projects can download it from a fixed URL:
@@ -333,6 +341,8 @@ runtime/                       the relay node (relay.csproj)
   IncomingDataAmountTracker.cs per-client rate limit
 tests/                         xUnit tests
 docs/http-api.md               HTTP API and webhook reference
+docs/http-api-guide.md         walkthrough of the HTTP API, with curl and C# examples
+examples/chat_client/          runnable chat client that joins a room
 build.sh                       tests and builds into artifacts/
 startup.sh                     builds and runs a node in the foreground
 dotnet_format.sh               runs dotnet format on every project
