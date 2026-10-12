@@ -28,7 +28,7 @@ Node  (one process, HTTP API)
 ## How it works
 
 1. The backend starts a node with an HTTP control URL.
-2. The backend calls `/api/room/new/` to open a room, passing a secret `ConnectionKey`.
+2. The backend calls `POST /api/rooms` to open a room, passing a secret `ConnectionKey`.
 3. The backend gives each client the room's address and a token encrypted with that key.
 4. The client connects to the room over UDP with the token. The room checks the token, and the client sends an `OnAuth` message to join.
 5. The room forwards packets between its clients, and calls the backend's webhooks when clients join or leave.
@@ -108,33 +108,35 @@ Launch arguments configure the node and apply to all of its rooms. They use a si
 
 ### Shutting down
 
-A node exits when its last room closes. That happens after `/api/room/close/` closes the final room, or on Ctrl+C or `SIGTERM`, which close every room first.
+A node exits when its last room closes. That happens after the final room is closed through the API (`DELETE /api/rooms` closes them all), or on Ctrl+C or `SIGTERM`, which close every room first.
 
 ## HTTP API
 
-The backend controls a node through these endpoints. Every endpoint answers `GET` requests and returns JSON. **Paths must end with a slash:** `/api/room/status/` works, but `/api/room/status` returns 404. The API has no authentication, so keep it on a local address such as `127.0.0.1`.
+The backend controls a node through a REST API. Every response is JSON, and each path accepts only the methods listed for it; any other method gets 405. The API has no authentication, so keep it on a local address such as `127.0.0.1`.
 
-| Endpoint | Query | What it does |
+| Method | Path | What it does |
 |---|---|---|
-| `/api/status/` | | Health check. Returns the node's process ID as `pid`. |
-| `/api/node/info/` | | Returns the node's memory use and running threads. |
-| `/api/room/new/` | `config` (optional) | Opens a room. Returns its `name` and `port`. |
-| `/api/room/status/` | `port` (optional) | Returns every room, or just one, with its client UIDs and traffic counters. |
-| `/api/room/has_client/` | `port`, `uid` | Returns `hasClient`: whether that client is in the room. |
-| `/api/room/get_client/` | `port`, plus `uid` or `token` | Finds a client by UID, or by the token it joined with. Returns `clientUid`. |
-| `/api/room/drop_client/` | `port`, `uid` | Disconnects a client. The other clients get `OnDisconnect` and the `ClientLeft` webhook fires. |
-| `/api/room/close/` | `port` (optional) | Closes one room, or all of them. Returns `closedRooms`. |
+| `GET` | `/api/status` | Health check. Returns the node's process ID as `pid`. |
+| `GET` | `/api/node` | Returns the node's memory use and running threads. |
+| `GET` | `/api/rooms` | Lists every room with its client UIDs and traffic counters. |
+| `POST` | `/api/rooms` | Opens a room. The body holds the room settings as JSON. Returns 201 with the room's `name` and `port`. |
+| `DELETE` | `/api/rooms` | Closes every room. |
+| `GET` | `/api/rooms/{port}` | Returns one room. |
+| `DELETE` | `/api/rooms/{port}` | Closes one room. |
+| `GET` | `/api/rooms/{port}/clients` | Lists a room's clients with their tokens. Add `?token=` to find the client that joined with a token. |
+| `GET` | `/api/rooms/{port}/clients/{uid}` | Returns one client, or 404 if it isn't in the room. |
+| `DELETE` | `/api/rooms/{port}/clients/{uid}` | Disconnects a client. The other clients get `OnDisconnect` and the `ClientLeft` webhook fires. |
 
-A failed request returns HTTP 500, or 404 for an unknown path, with the reason in an `error` field.
+Errors use the matching status code (400, 404, 405, 409, or 500 for anything unexpected), with the reason in an `error` field.
 
 For each endpoint's parameters, responses and errors, see the [HTTP API reference](docs/http-api.md).
 
 ### Opening a room
 
-Pass the room settings as JSON in the `config` query parameter:
+Send the room settings as the JSON body of a `POST`:
 
 ```bash
-curl -G "http://127.0.0.1:8080/api/room/new/" --data-urlencode 'config={
+curl -X POST "http://127.0.0.1:8080/api/rooms" -H "Content-Type: application/json" --data '{
   "TargetPort": 0,
   "ConnectionKey": "6f9b2c1e-4d7a-4e8b-9a3f-1c5d7e9b2a40",
   "Webhooks": {
@@ -145,10 +147,10 @@ curl -G "http://127.0.0.1:8080/api/room/new/" --data-urlencode 'config={
 ```
 
 ```json
-{"status":"success","timestamp":"2026-10-12T15:54:43.576478Z","method":"GET","room":{"name":"Room_58792","port":58792}}
+{"status":"success","timestamp":"2026-10-12T16:13:03.333247Z","method":"POST","room":{"name":"Room_53247","port":53247}}
 ```
 
-`TargetPort` `0` picks a free port. Leave out `ConnectionKey` only for testing: without it, anyone can join. Every setting is listed under [Room settings](docs/http-api.md#room-settings).
+The response is 201 Created, and its `Location` header points at the new room, such as `http://127.0.0.1:8080/api/rooms/53247/`. `TargetPort` `0` picks a free port. Leave out `ConnectionKey` only for testing: without it, anyone can join. Every setting is listed under [Room settings](docs/http-api.md#room-settings).
 
 ## Webhooks
 
@@ -299,7 +301,7 @@ client.RegisterDataTransferLayer(new DataTransferXorObfuscationLayer(udpEncrypti
 dotnet test tests/relay_tests.csproj
 ```
 
-The tests cover parsing of room settings and token encryption.
+The tests cover parsing of room settings, token encryption, and matching of API paths.
 
 To format the code, run `sh dotnet_format.sh`.
 
@@ -323,8 +325,9 @@ https://github.com/stasync/relay-dotnet/releases/download/latest-build/relay-lat
 runtime/                       the relay node (relay.csproj)
   Entry.cs                     startup, launch arguments, HTTP routes, shutdown
   Room.cs                      one room: token checks, routing, blocking
-  RoomSettings.cs              settings accepted by /api/room/new/
-  HttpServer.cs                HTTP listener
+  RoomSettings.cs              settings accepted by POST /api/rooms
+  HttpServer.cs                HTTP listener: matches each request's method and path to a handler
+  RouteTemplate.cs             path templates such as /api/rooms/{port}/clients/{uid}
   HttpRequestHandler.cs        HTTP API endpoints
   HttpWebhookSender.cs         webhooks, with retry
   IncomingDataAmountTracker.cs per-client rate limit

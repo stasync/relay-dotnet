@@ -16,11 +16,15 @@ This page lists every endpoint, the settings a room accepts, and the webhooks it
 
 **Base URL.** The API listens on the address given by the node's `httpListenerUrl` launch argument, such as `http://127.0.0.1:8080/`. Without that argument, the API and webhooks are off.
 
-**Requests.** Send `GET` requests with parameters in the query string. Paths must end with a slash: `/api/room/status/` works, but `/api/room/status` returns 404.
+**Paths.** Paths are case-insensitive, and a trailing slash is optional: `/api/rooms` and `/api/rooms/` are the same.
+
+**Methods.** Each path accepts only the methods listed for it. Any other method gets 405 with an `Allow` header naming the right ones.
+
+**Request bodies.** Only `POST /api/rooms` takes a body: JSON, sent with a `Content-Length` (or chunked). Most clients, including `curl --data` and `fetch`, set it for you. A `POST` without a body length is answered with 411 and ignored.
 
 **No authentication.** Anyone who can reach the API can open, inspect and close rooms. Keep it on a local address such as `127.0.0.1`, or behind a firewall.
 
-**Responses.** Every response is JSON. A successful one has HTTP status 200 and always contains:
+**Responses.** Every response is JSON. A successful one always contains:
 
 | Field | Description |
 |---|---|
@@ -28,45 +32,62 @@ This page lists every endpoint, the settings a room accepts, and the webhooks it
 | `timestamp` | When the response was made, in UTC (ISO 8601). |
 | `method` | The HTTP method of the request. |
 
-**Errors.** An unknown path returns 404. Any other failure, including a missing or invalid parameter, returns 500. Both use this body:
+**Status codes.**
+
+| Code | When |
+|---|---|
+| 200 OK | The request succeeded. |
+| 201 Created | A room was opened. The `Location` header points at it. |
+| 400 Bad Request | A port, client UID or room settings value is invalid. |
+| 404 Not Found | No such room, client or path. |
+| 405 Method Not Allowed | The path doesn't accept that method. `Allow` lists the ones it does. |
+| 409 Conflict | The requested room port is already in use. |
+| 411 Length Required | A `POST` without a body length. This one comes from the HTTP listener itself, with an HTML body. |
+| 500 Internal Server Error | Anything unexpected. |
+
+**Errors.** Every error except 411 uses this body:
 
 ```json
 {
-  "code": 500,
-  "error": "/api/room/status/: Internal server error: Unable to find room with port 9000.",
-  "timestamp": "2026-10-12T15:54:47.784727Z"
+  "code": 404,
+  "error": "Unable to find room with port 9000.",
+  "timestamp": "2026-10-12T16:13:07.603054Z"
 }
 ```
 
 ## Endpoints
 
-| Endpoint | Description |
-|---|---|
-| [`/api/status/`](#apistatus) | Health check. |
-| [`/api/node/info/`](#apinodeinfo) | Reports the node's memory use and running threads. |
-| [`/api/room/new/`](#apiroomnew) | Opens a room. |
-| [`/api/room/status/`](#apiroomstatus) | Lists rooms and their clients. |
-| [`/api/room/has_client/`](#apiroomhas_client) | Checks whether a client is in a room. |
-| [`/api/room/get_client/`](#apiroomget_client) | Finds a client by UID or token. |
-| [`/api/room/drop_client/`](#apiroomdrop_client) | Disconnects a client. |
-| [`/api/room/close/`](#apiroomclose) | Closes one room or all of them. |
+| Method | Path | Description |
+|---|---|---|
+| `GET` | [`/api/status`](#get-apistatus) | Health check. |
+| `GET` | [`/api/node`](#get-apinode) | Reports the node's memory use and running threads. |
+| `GET` | [`/api/rooms`](#get-apirooms) | Lists rooms and their clients. |
+| `POST` | [`/api/rooms`](#post-apirooms) | Opens a room. |
+| `DELETE` | [`/api/rooms`](#delete-apirooms) | Closes every room. |
+| `GET` | [`/api/rooms/{port}`](#get-apiroomsport) | Returns one room. |
+| `DELETE` | [`/api/rooms/{port}`](#delete-apiroomsport) | Closes one room. |
+| `GET` | [`/api/rooms/{port}/clients`](#get-apiroomsportclients) | Lists a room's clients, or finds one by token. |
+| `GET` | [`/api/rooms/{port}/clients/{uid}`](#get-apiroomsportclientsuid) | Returns one client. |
+| `DELETE` | [`/api/rooms/{port}/clients/{uid}`](#delete-apiroomsportclientsuid) | Disconnects a client. |
 
-### `/api/status/`
+In every path, `{port}` is a room's port and `{uid}` is a client's UID. A value that isn't a valid number gets 400; a room or client that doesn't exist gets 404.
+
+### `GET /api/status`
 
 Health check with a small response, suitable for frequent polling.
 
 ```json
 {
   "status": "success",
-  "pid": 37623,
-  "timestamp": "2026-10-12T15:54:43.512094Z",
+  "pid": 40634,
+  "timestamp": "2026-10-12T16:13:03.241445Z",
   "method": "GET"
 }
 ```
 
 `pid` is the node's process ID.
 
-### `/api/node/info/`
+### `GET /api/node`
 
 Reports the node's memory use and its running threads.
 
@@ -81,7 +102,7 @@ Reports the node's memory use and its running threads.
   "workers": [
     { "type": "Keel.Utils.Debug.LogWorker", "name": "Keel.Utils.Debug.LogWorker" },
     { "type": "UdpRelay.Room", "name": "Room_53832" },
-    { "type": "UdpRelay.Room", "name": "TestRoom" }
+    { "type": "UdpRelay.Room", "name": "Lobby" }
   ]
 }
 ```
@@ -93,83 +114,36 @@ Reports the node's memory use and its running threads.
 | `workersCount` | Number of running worker threads. |
 | `workers` | Each worker's type and name. Rooms have the type `UdpRelay.Room`; the log writer is also listed. |
 
-### `/api/room/new/`
+### `GET /api/rooms`
 
-Opens a new room on its own thread.
-
-| Parameter | Required | Description |
-|---|---|---|
-| `config` | No | The [room settings](#room-settings) as JSON, URL-encoded. |
-
-```bash
-curl -G "http://127.0.0.1:8080/api/room/new/" --data-urlencode 'config={"TargetPort": 0, "ConnectionKey": "6f9b2c1e-4d7a-4e8b-9a3f-1c5d7e9b2a40"}'
-```
+Lists every room and the clients in it.
 
 ```json
 {
   "status": "success",
-  "timestamp": "2026-10-12T15:54:43.576478Z",
-  "method": "GET",
-  "room": {
-    "name": "Room_58792",
-    "port": 58792
-  }
-}
-```
-
-| Field | Description |
-|---|---|
-| `room.name` | The room's name, used in logs and in `/api/room/status/`. |
-| `room.port` | The UDP port the room listens on. Use it to address the room in every other endpoint. |
-
-Without `config`, the room opens on a free port with no `ConnectionKey`, so anyone can join it.
-
-Node-wide launch arguments also apply to every room: `maxClientsPerRoom`, `protocolKey`, `roomUpdateIntervalMs`, `blacklistDurationMs` and `logConnectionRejections`. See [Launch arguments](../README.md#launch-arguments).
-
-Fails when:
-
-- `config` isn't valid JSON.
-- `TargetPort` is outside 0–65535.
-- `TargetPort` is already in use.
-
-### `/api/room/status/`
-
-Lists rooms and the clients in them.
-
-| Parameter | Required | Description |
-|---|---|---|
-| `port` | No | Port of one room. Leave it out to list every room. |
-
-Without `port`:
-
-```json
-{
-  "status": "success",
-  "timestamp": "2026-10-12T15:54:47.698547Z",
+  "timestamp": "2026-10-12T16:13:07.504486Z",
   "method": "GET",
   "roomsCount": 2,
   "rooms": [
     {
-      "name": "Room_53832",
-      "port": 53832,
-      "clientsCount": 0,
-      "clients": [],
-      "bytesSent": 0,
-      "bytesReceived": 0
-    },
-    {
-      "name": "TestRoom",
-      "port": 58792,
+      "name": "Lobby",
+      "port": 53247,
       "clientsCount": 1,
       "clients": [1],
       "bytesSent": 355,
       "bytesReceived": 790
+    },
+    {
+      "name": "Room_63829",
+      "port": 63829,
+      "clientsCount": 0,
+      "clients": [],
+      "bytesSent": 0,
+      "bytesReceived": 0
     }
   ]
 }
 ```
-
-With `port`, the same fields come back as a single `room` object instead of the `rooms` list.
 
 | Field | Description |
 |---|---|
@@ -179,113 +153,147 @@ With `port`, the same fields come back as a single `room` object instead of the 
 | `clients` | UIDs of the clients in the room. |
 | `bytesSent`, `bytesReceived` | Traffic since the room opened. Counted only when the room has `CaptureDataTransferAmount` on; otherwise `0`. |
 
-Fails when `port` is given but no room uses it.
+### `POST /api/rooms`
 
-### `/api/room/has_client/`
+Opens a new room on its own thread. The body holds the [room settings](#room-settings) as JSON. An empty body opens a room with the defaults: a free port and no `ConnectionKey`, so anyone can join it.
 
-Checks whether a client is in a room.
+```bash
+curl -X POST "http://127.0.0.1:8080/api/rooms" \
+  -H "Content-Type: application/json" \
+  --data '{"Name": "Lobby", "ConnectionKey": "6f9b2c1e-4d7a-4e8b-9a3f-1c5d7e9b2a40"}'
+```
 
-| Parameter | Required | Description |
-|---|---|---|
-| `port` | Yes | Port of the room. |
-| `uid` | Yes | UID of the client. |
+The response is 201 Created, with a `Location` header such as `http://127.0.0.1:8080/api/rooms/53247/`:
 
 ```json
 {
   "status": "success",
-  "timestamp": "2026-10-12T15:54:47.716751Z",
-  "method": "GET",
-  "hasClient": true
+  "timestamp": "2026-10-12T16:13:03.333247Z",
+  "method": "POST",
+  "room": {
+    "name": "Lobby",
+    "port": 53247
+  }
 }
 ```
 
-Fails when:
+| Field | Description |
+|---|---|
+| `room.name` | The room's name, used in logs and in `GET /api/rooms`. |
+| `room.port` | The UDP port the room listens on. Use it as `{port}` in the other endpoints. |
 
-- `port` or `uid` is missing, or `port` is `0`.
-- No room uses that port.
+Node-wide launch arguments also apply to every room: `maxClientsPerRoom`, `protocolKey`, `roomUpdateIntervalMs`, `blacklistDurationMs` and `logConnectionRejections`. See [Launch arguments](../README.md#launch-arguments).
 
-### `/api/room/get_client/`
+Fails with:
 
-Finds a client by UID, by the token it joined with, or both.
+- 400 if the body isn't valid JSON, or `TargetPort` is outside 0–65535.
+- 409 if `TargetPort` is already in use.
 
-| Parameter | Required | Description |
-|---|---|---|
-| `port` | Yes | Port of the room. |
-| `uid` | One of the two | UID of the client. |
-| `token` | One of the two | The token the client joined with. URL-encode it. |
+### `DELETE /api/rooms`
 
-- With only `uid`, it succeeds if that client is in the room.
-- With only `token`, it finds the client that joined with that token.
-- With both, the client must be in the room and must have joined with that token.
+Closes every room. Their clients are dropped without notice, and the node exits once the last room has closed.
 
 ```json
 {
   "status": "success",
-  "timestamp": "2026-10-12T15:54:47.737339Z",
-  "method": "GET",
-  "clientUid": 1
-}
-```
-
-Fails when:
-
-- `port` is missing or `0`.
-- Neither `uid` nor `token` is given.
-- No room uses that port.
-- No client matches.
-
-### `/api/room/drop_client/`
-
-Disconnects a client from a room.
-
-| Parameter | Required | Description |
-|---|---|---|
-| `port` | Yes | Port of the room. |
-| `uid` | Yes | UID of the client. |
-
-The response only confirms the request. The room disconnects the client on its next update, then sends `OnDisconnect` to the other clients and calls the `ClientLeft` webhook.
-
-```json
-{
-  "status": "success",
-  "timestamp": "2026-10-12T15:54:47.803263Z",
-  "method": "GET"
-}
-```
-
-Fails when:
-
-- `port` or `uid` is missing, or `port` is `0`.
-- No room uses that port.
-- No client with that UID is in the room.
-
-### `/api/room/close/`
-
-Closes one room, or all of them.
-
-| Parameter | Required | Description |
-|---|---|---|
-| `port` | No | Port of the room to close. Leave it out, or pass `0`, to close every room. |
-
-```json
-{
-  "status": "success",
-  "timestamp": "2026-10-12T15:54:49.439441Z",
-  "method": "GET",
+  "timestamp": "2026-10-12T16:13:10.228228Z",
+  "method": "DELETE",
   "closedRooms": [
-    { "name": "Room_53832", "port": 53832 },
-    { "name": "TestRoom", "port": 58792 }
+    { "name": "Room_63829", "port": 63829 },
+    { "name": "Room_55086", "port": 55086 }
   ]
 }
 ```
 
-A `port` that no room uses isn't an error: the request succeeds with an empty `closedRooms` list.
+### `GET /api/rooms/{port}`
+
+Returns one room, with the same fields as an entry in [`GET /api/rooms`](#get-apirooms).
+
+```json
+{
+  "status": "success",
+  "timestamp": "2026-10-12T16:13:07.518057Z",
+  "method": "GET",
+  "room": {
+    "name": "Lobby",
+    "port": 53247,
+    "clientsCount": 1,
+    "clients": [1],
+    "bytesSent": 355,
+    "bytesReceived": 790
+  }
+}
+```
+
+### `DELETE /api/rooms/{port}`
+
+Closes one room.
+
+```json
+{
+  "status": "success",
+  "timestamp": "2026-10-12T16:13:09.190765Z",
+  "method": "DELETE",
+  "room": { "name": "Lobby", "port": 53247 }
+}
+```
 
 Closing a room drops its clients without notice. They get no `OnDisconnect`, and no `ClientLeft` webhooks are sent for them. When the node's last room closes, the node exits.
 
+### `GET /api/rooms/{port}/clients`
+
+Lists the clients in a room, with the token each one joined with.
+
+| Query parameter | Required | Description |
+|---|---|---|
+| `token` | No | Returns only the client that joined with this token. URL-encode it: tokens contain `+`, `/` and `:`. |
+
+```json
+{
+  "status": "success",
+  "timestamp": "2026-10-12T16:13:07.552422Z",
+  "method": "GET",
+  "clientsCount": 1,
+  "clients": [
+    { "uid": 1, "token": "<the token the client joined with>" }
+  ]
+}
+```
+
+When no client matches `token`, the list is empty; the status is still 200.
+
+### `GET /api/rooms/{port}/clients/{uid}`
+
+Returns one client. Returns 404 if no client with that UID is in the room, so it also answers "is this client still here?".
+
+```json
+{
+  "status": "success",
+  "timestamp": "2026-10-12T16:13:07.57259Z",
+  "method": "GET",
+  "client": { "uid": 1, "token": "<the token the client joined with>" }
+}
+```
+
+To check that a client joined with a particular token, compare `client.token` with it.
+
+### `DELETE /api/rooms/{port}/clients/{uid}`
+
+Disconnects a client. The response only confirms the request: the room disconnects the client on its next update, then sends `OnDisconnect` to the other clients and calls the `ClientLeft` webhook.
+
+```json
+{
+  "status": "success",
+  "timestamp": "2026-10-12T16:13:07.640555Z",
+  "method": "DELETE"
+}
+```
+
+Returns 404 if no client with that UID is in the room.
+
 ## Room settings
 
-`/api/room/new/` takes these settings in its `config` parameter. Every field is optional, and field names are case-sensitive.
+`POST /api/rooms` takes these settings as its JSON body. Every field is optional, and field names are case-sensitive.
 
 ```json
 {
@@ -310,7 +318,7 @@ Closing a room drops its clients without notice. They get no `OnDisconnect`, and
 | `Name` | `Room_<port>` | The room's name, shown in logs and status. |
 | `ConnectionKey` | empty | Secret used to check [connection tokens](../README.md#connection-tokens). If it's empty, anyone can join, so use that only for testing. |
 | `UdpEncryptionKey` | empty | If set, all UDP traffic is XOR-scrambled with this key, and clients must do the same (see [Writing a client](../README.md#writing-a-client)). This hides traffic from casual inspection but is not real encryption. |
-| `CaptureDataTransferAmount` | `false` | Counts traffic, reported as `bytesSent` and `bytesReceived` by `/api/room/status/`. |
+| `CaptureDataTransferAmount` | `false` | Counts traffic, reported as `bytesSent` and `bytesReceived` by `GET /api/rooms`. |
 | `Webhooks.ClientJoined` | empty | URL to call when a client joins. It must end with `/`. Empty means no webhook. |
 | `Webhooks.ClientLeft` | empty | URL to call when a client leaves. It must end with `/`. Empty means no webhook. |
 | `ClientRateLimiter.KBitPerSecLimit` | `0` | Maximum incoming traffic per client, in kbit/s. A client that goes over it has its IP address blocked for `blacklistDurationMs`. `0` means no limit. |
@@ -327,11 +335,11 @@ Sent when a client joins, which is when it sends `OnAuth`, not when its UDP conn
 
 ```json
 {
-  "roomPort": 59446,
+  "roomPort": 53247,
   "clientUid": 1,
   "token": "<the token the client joined with>",
-  "endpoint": "203.0.113.5:62729",
-  "timestamp": "2026-10-12T15:57:10.219155Z"
+  "endpoint": "203.0.113.5:65067",
+  "timestamp": "2026-10-12T16:13:03.802665Z"
 }
 ```
 
@@ -345,13 +353,13 @@ Sent when a client joins, which is when it sends `OnAuth`, not when its UDP conn
 
 ### `ClientLeft`
 
-Sent when a client leaves: it disconnects, its connection times out, or it's dropped through [`/api/room/drop_client/`](#apiroomdrop_client). It isn't sent when the room itself is closed.
+Sent when a client leaves: it disconnects, its connection times out, or it's dropped through [`DELETE /api/rooms/{port}/clients/{uid}`](#delete-apiroomsportclientsuid). It isn't sent when the room itself is closed.
 
 ```json
 {
-  "roomPort": 59446,
+  "roomPort": 53247,
   "clientUid": 1,
-  "timestamp": "2026-10-12T15:57:13.982483Z"
+  "timestamp": "2026-10-12T16:13:07.672649Z"
 }
 ```
 

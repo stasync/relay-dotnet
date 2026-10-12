@@ -53,11 +53,8 @@ namespace UdpRelay
             internal ReadOnlyClientCollection(ConcurrentDictionary<uint, string> clients) =>
                 _clients = clients;
 
-            internal bool HasClient(uint clientUid) =>
-                _clients.ContainsKey(clientUid);
-
-            internal string GetClientToken(uint clientUid) =>
-                _clients.TryGetValue(clientUid, out var token) ? token : throw new KeyNotFoundException($"Client with id '{clientUid}' does not exist.");
+            internal bool TryGetClientToken(uint clientUid, out string token) =>
+                _clients.TryGetValue(clientUid, out token);
 
             internal uint[] ToArray()
             {
