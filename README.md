@@ -2,19 +2,19 @@
 
 [![CI](https://github.com/stasync/relay-dotnet/actions/workflows/ci.yml/badge.svg)](https://github.com/stasync/relay-dotnet/actions/workflows/ci.yml)
 
-Relay is a UDP relay server for multiplayer games. Players connect to a relay port, and the relay forwards each player's messages to the other players on that port, so players never need to reach each other directly.
+Relay is a .NET server that forwards UDP messages between clients. Each client connects to a relay port, and every message it sends is passed on to the other clients on that port, so clients never need to reach each other directly. It fits any app where a group of clients exchanges messages in real time, such as multiplayer games, collaboration tools, chat, or device-to-device messaging.
 
-A backend service controls the relay through a small HTTP API. It opens relay ports, hands out short-lived connection tokens, and receives a webhook whenever a player joins or leaves. One process can host many relay ports, each on its own thread.
+A backend service controls the relay through a small HTTP API. It opens relay ports, hands out short-lived connection tokens, and receives a webhook whenever a client joins or leaves. One process can host many relay ports, each on its own thread.
 
-Networking is built on [Keel](https://github.com/stasync/keel-dotnet)'s reliable UDP, so each message can be sent unreliably, reliably, or reliably and in order.
+Networking is built on [Keel](https://github.com/stasync/keel-dotnet)'s reliable UDP, so each message can be sent unreliably, reliably, or reliably and in order. The relay runs on .NET 10. Clients use Keel too, which has builds for .NET 10 and .NET Standard 2.1, so a client can be almost any .NET app.
 
 ## How it works
 
 1. The backend starts the relay process with an HTTP control URL.
 2. The backend calls `/api/relay/new/` to open a relay port, passing a secret `ConnectionKey`.
-3. The backend gives each player the relay's address and a token encrypted with that key.
-4. The player connects over UDP with the token. The relay checks the token, and the player sends an `OnAuth` message to join.
-5. The relay forwards packets between players on the same port, and calls the backend's webhooks when players join or leave.
+3. The backend gives each client the relay's address and a token encrypted with that key.
+4. The client connects over UDP with the token. The relay checks the token, and the client sends an `OnAuth` message to join.
+5. The relay forwards packets between clients on the same port, and calls the backend's webhooks when clients join or leave.
 
 ## Requirements
 
@@ -81,7 +81,7 @@ Arguments use a single dash: `-name value`. Each one can also be set with a file
 |---|---|---|
 | `httpListenerUrl` | empty | Address for the HTTP API, such as `http://127.0.0.1:8080/`. It must end with `/`. Without it, the API and webhooks are off. |
 | `relayPort` | none | Opens a relay on this UDP port at startup. Repeat it to open more ports. `0` picks a free port. These relays have no connection key, so anyone can join: use them only for local testing. |
-| `maxConnectionsPerPort` | `16` | Maximum number of players on one relay port. |
+| `maxConnectionsPerPort` | `16` | Maximum number of clients on one relay port. |
 | `relayProtocolKey` | `0` | Key that UDP packets must carry to be accepted. Keel's `ReliableUdpClient` always sends `0`, so keep the default unless your clients use a different key. |
 | `relayMillisecondsTimeStep` | `50` | How often each relay thread processes traffic, in milliseconds. |
 | `blacklistDurationMs` | `10000` | How long a misbehaving IP address stays blocked. `0` turns blocking off. |
@@ -104,7 +104,7 @@ The backend controls the relay through these endpoints. Every endpoint answers `
 | `/api/relay/status/` | `port` (optional) | Returns every relay, or just one, with its connection UIDs and traffic counters. |
 | `/api/relay/has_connection/` | `port`, `uid` | Returns `hasConnection`: whether that UID is joined. |
 | `/api/relay/get_connection/` | `port`, plus `uid` or `token` | Finds a connection by UID, or by the token it joined with. Returns `connectionUid`. |
-| `/api/relay/drop_connection/` | `port`, `uid` | Disconnects a player. The other players get `OnDisconnect` and the disconnect webhook fires. |
+| `/api/relay/drop_connection/` | `port`, `uid` | Disconnects a client. The other clients get `OnDisconnect` and the disconnect webhook fires. |
 | `/api/relay/shutdown/` | `port` (optional) | Closes one relay, or all of them. Returns `closedRelays`. |
 | `/api/system/info/` | | Returns memory use and the running worker threads. |
 
@@ -137,14 +137,14 @@ curl -G "http://127.0.0.1:8080/api/relay/new/" --data-urlencode 'config={
 
 Each relay can call two URLs on the backend, set in its `Webhooks` settings:
 
-- `UserConnected` receives the player's UID, the token they joined with, and their address. It fires when the player sends `OnAuth`, not when the UDP connection opens.
-- `UserDisconnected` receives the player's UID when they leave: they disconnect, time out, or are dropped through the API. It isn't sent when the relay itself is closed.
+- `UserConnected` receives the client's UID, the token it joined with, and its address. It fires when the client sends `OnAuth`, not when the UDP connection opens.
+- `UserDisconnected` receives the client's UID when it leaves: it disconnects, times out, or is dropped through the API. It isn't sent when the relay itself is closed.
 
 **Webhook URLs must end with `/`.** Without it, the relay logs an error and never calls the URL. A URL that can't be reached is retried every 4 seconds. The payloads and delivery rules are in the [HTTP API reference](docs/http-api.md#webhooks).
 
 ## Connection tokens
 
-When a relay has a `ConnectionKey`, each player must present a token when connecting. A token is this JSON, encrypted with the relay's key, with times in Unix milliseconds:
+When a relay has a `ConnectionKey`, each client must present a token when connecting. A token is this JSON, encrypted with the relay's key, with times in Unix milliseconds:
 
 ```json
 { "TargetPort": 49791, "IssueUnixTime": 1791622588239, "ExpirationUnixTime": 1791622618239 }
@@ -174,9 +174,9 @@ The relay accepts a token only if all of these hold:
 - It decrypts with the relay's `ConnectionKey`, and the integrity check passes.
 - `TargetPort` matches the relay's port.
 - It hasn't expired.
-- No one else has used it yet. A token stays reserved until it expires, even after its player disconnects, so a reconnecting player needs a new token.
+- No one else has used it yet. A token stays reserved until it expires, even after its client disconnects, so a reconnecting client needs a new token.
 
-When a check fails, the relay rejects the connection and blocks the player's IP address for `blacklistDurationMs`. Everyone else behind that address, such as players on the same home network, is blocked too.
+When a check fails, the relay rejects the connection and blocks the client's IP address for `blacklistDurationMs`. Every other client behind that address, such as one on the same home or office network, is blocked too.
 
 ## Writing a client
 
@@ -186,7 +186,7 @@ Messages from the client:
 
 | Type | Byte | Contents |
 |---|---|---|
-| `OnAuth` | `0` | Nothing else. Send it once, right after `Connected` fires. The relay ignores a player until it arrives. |
+| `OnAuth` | `0` | Nothing else. Send it once, right after `Connected` fires. The relay ignores a client until it arrives. |
 | `OnPacket` | `1` | Op code (packed), receiver count (packed), each receiver's UID (packed), then the payload (`WriteBytesAndSize`). |
 
 A receiver count of `0` sends the packet to everyone except the sender. Otherwise only the listed UIDs get it. The relay forwards each packet with the same delivery method the client used.
@@ -195,9 +195,9 @@ Messages from the relay:
 
 | Type | Byte | Contents |
 |---|---|---|
-| `OnJoined` | `0` | The new player's UID (packed), the player count (packed), then every UID on the relay, including the new one (packed). Sent to everyone, including the new player. |
+| `OnJoined` | `0` | The new client's UID (packed), the client count (packed), then every UID on the relay, including the new one (packed). Sent to everyone, including the new client. |
 | `OnPacket` | `1` | Sender's UID (packed), op code (packed), payload (`ReadBytesAndSize`). |
-| `OnDisconnect` | `2` | The UID of the player who left (packed). |
+| `OnDisconnect` | `2` | The UID of the client that left (packed). |
 
 The relay never reads the op code or payload, so their meaning is up to you. A client can spot its own `OnJoined` by comparing the UID with `client.ConnectionUid`.
 
@@ -229,19 +229,19 @@ client.DataReceived += (data, deliveryMethod) =>
     {
         case 0: // OnJoined
             var joinedUid = reader.ReadPackedUInt32();
-            var playerCount = reader.ReadPackedUInt32();
-            Console.WriteLine($"Player {joinedUid} joined, {playerCount} players here");
+            var clientCount = reader.ReadPackedUInt32();
+            Console.WriteLine($"Client {joinedUid} joined, {clientCount} clients here");
             break;
 
         case 1: // OnPacket
             var senderUid = reader.ReadPackedUInt32();
             var opCode = reader.ReadPackedUInt32();
             var payload = reader.ReadBytesAndSize();
-            Console.WriteLine($"Player {senderUid} sent op {opCode}: {Encoding.UTF8.GetString(payload)}");
+            Console.WriteLine($"Client {senderUid} sent op {opCode}: {Encoding.UTF8.GetString(payload)}");
             break;
 
         case 2: // OnDisconnect
-            Console.WriteLine($"Player {reader.ReadPackedUInt32()} left");
+            Console.WriteLine($"Client {reader.ReadPackedUInt32()} left");
             break;
     }
 };
@@ -309,7 +309,7 @@ runtime/                       the relay server (relay.csproj)
   HttpServer.cs                HTTP listener
   HttpRequestHandler.cs        HTTP API endpoints
   HttpWebhookSender.cs         webhooks, with retry
-  IncomingDataAmountTracker.cs per-player rate limit
+  IncomingDataAmountTracker.cs per-client rate limit
 tests/                         xUnit tests
 docs/http-api.md               HTTP API and webhook reference
 build.sh                       tests and builds into artifacts/

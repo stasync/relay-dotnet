@@ -1,6 +1,6 @@
 # HTTP API reference
 
-The relay process is controlled over HTTP: a backend uses it to open and close relays, look up connected players, and drop them. Each relay can also call the backend back through webhooks when a player joins or leaves.
+The relay process is controlled over HTTP: a backend uses it to open and close relays, look up connected clients, and drop them. Each relay can also call the backend back through webhooks when a client joins or leaves.
 
 This page lists every endpoint, the settings a relay accepts, and the webhooks it sends. For building and running the relay, connection tokens, and the client protocol, see the [README](../README.md).
 
@@ -36,14 +36,14 @@ This page lists every endpoint, the settings a relay accepts, and the webhooks i
 |---|---|
 | [`/api/status/`](#apistatus) | Health check. |
 | [`/api/relay/new/`](#apirelaynew) | Opens a relay. |
-| [`/api/relay/status/`](#apirelaystatus) | Lists relays and their players. |
-| [`/api/relay/has_connection/`](#apirelayhas_connection) | Checks whether a player is on a relay. |
-| [`/api/relay/get_connection/`](#apirelayget_connection) | Finds a player by UID or token. |
-| [`/api/relay/drop_connection/`](#apirelaydrop_connection) | Disconnects a player. |
+| [`/api/relay/status/`](#apirelaystatus) | Lists relays and their clients. |
+| [`/api/relay/has_connection/`](#apirelayhas_connection) | Checks whether a client is on a relay. |
+| [`/api/relay/get_connection/`](#apirelayget_connection) | Finds a client by UID or token. |
+| [`/api/relay/drop_connection/`](#apirelaydrop_connection) | Disconnects a client. |
 | [`/api/relay/shutdown/`](#apirelayshutdown) | Closes one relay or all of them. |
 | [`/api/system/info/`](#apisysteminfo) | Reports memory use and running threads. |
 
-A *player* below means a client that has joined a relay by sending `OnAuth`. Clients that have connected over UDP but not yet joined don't appear in any response.
+Only clients that have joined a relay by sending `OnAuth` count. Clients that have connected over UDP but not yet joined don't appear in any response.
 
 ### `/api/status/`
 
@@ -99,7 +99,7 @@ Fails when:
 
 ### `/api/relay/status/`
 
-Lists relays and the players on them.
+Lists relays and the clients on them.
 
 | Parameter | Required | Description |
 |---|---|---|
@@ -132,20 +132,20 @@ With `port`, the same relay fields come back as a single `relayWorker` object in
 |---|---|
 | `name` | The relay's thread name. |
 | `port` | The relay's UDP port. |
-| `connectionsCount` | Number of players on the relay. |
-| `connections` | UIDs of the players on the relay. |
+| `connectionsCount` | Number of clients on the relay. |
+| `connections` | UIDs of the clients on the relay. |
 | `bytesSent`, `bytesReceived` | Traffic since the relay opened. Counted only when the relay has `CaptureDataTransferAmount` on; otherwise `0`. |
 
 Fails when `port` is given but no relay uses it.
 
 ### `/api/relay/has_connection/`
 
-Checks whether a player is on a relay.
+Checks whether a client is on a relay.
 
 | Parameter | Required | Description |
 |---|---|---|
 | `port` | Yes | Port of the relay. |
-| `uid` | Yes | UID of the player. |
+| `uid` | Yes | UID of the client. |
 
 ```json
 {
@@ -163,17 +163,17 @@ Fails when:
 
 ### `/api/relay/get_connection/`
 
-Finds a player by UID, by the token they joined with, or both.
+Finds a client by UID, by the token it joined with, or both.
 
 | Parameter | Required | Description |
 |---|---|---|
 | `port` | Yes | Port of the relay. |
-| `uid` | One of the two | UID of the player. |
-| `token` | One of the two | The token the player joined with. |
+| `uid` | One of the two | UID of the client. |
+| `token` | One of the two | The token the client joined with. |
 
-- With only `uid`, it succeeds if that player is on the relay.
-- With only `token`, it finds the player who joined with that token.
-- With both, the player must be on the relay and must have joined with that token.
+- With only `uid`, it succeeds if that client is on the relay.
+- With only `token`, it finds the client that joined with that token.
+- With both, the client must be on the relay and must have joined with that token.
 
 ```json
 {
@@ -189,18 +189,18 @@ Fails when:
 - `port` is missing or `0`.
 - Neither `uid` nor `token` is given.
 - No relay uses that port.
-- No player matches.
+- No client matches.
 
 ### `/api/relay/drop_connection/`
 
-Disconnects a player.
+Disconnects a client.
 
 | Parameter | Required | Description |
 |---|---|---|
 | `port` | Yes | Port of the relay. |
-| `uid` | Yes | UID of the player. |
+| `uid` | Yes | UID of the client. |
 
-The response only confirms the request. The relay disconnects the player on its next update, then sends `OnDisconnect` to the other players and calls the `UserDisconnected` webhook.
+The response only confirms the request. The relay disconnects the client on its next update, then sends `OnDisconnect` to the other clients and calls the `UserDisconnected` webhook.
 
 ```json
 {
@@ -214,7 +214,7 @@ Fails when:
 
 - `port` or `uid` is missing, or `port` is `0`.
 - No relay uses that port.
-- No player with that UID is on the relay.
+- No client with that UID is on the relay.
 
 ### `/api/relay/shutdown/`
 
@@ -237,7 +237,7 @@ Closes one relay, or all of them.
 
 A `port` that no relay uses isn't an error: the request succeeds with an empty `closedRelays` list.
 
-Closing a relay drops its players without notice. They get no `OnDisconnect`, and no `UserDisconnected` webhooks are sent for them. When the last relay closes, the process exits.
+Closing a relay drops its clients without notice. They get no `OnDisconnect`, and no `UserDisconnected` webhooks are sent for them. When the last relay closes, the process exits.
 
 ### `/api/system/info/`
 
@@ -293,9 +293,9 @@ Reports the process's memory use and its running threads.
 | `ConnectionKey` | empty | Secret used to check [connection tokens](../README.md#connection-tokens). If it's empty, anyone can join, so use that only for testing. |
 | `UdpEncryptionKey` | empty | If set, all UDP traffic is XOR-scrambled with this key, and clients must do the same (see [Writing a client](../README.md#writing-a-client)). This hides traffic from casual inspection but is not real encryption. |
 | `CaptureDataTransferAmount` | `false` | Counts traffic, reported as `bytesSent` and `bytesReceived` by `/api/relay/status/`. |
-| `Webhooks.UserConnected` | empty | URL to call when a player joins. It must end with `/`. Empty means no webhook. |
-| `Webhooks.UserDisconnected` | empty | URL to call when a player leaves. It must end with `/`. Empty means no webhook. |
-| `ClientRateLimiter.KBitPerSecLimit` | `0` | Maximum incoming traffic per player, in kbit/s. A player who goes over it has their IP address blocked for `blacklistDurationMs`. `0` means no limit. |
+| `Webhooks.UserConnected` | empty | URL to call when a client joins. It must end with `/`. Empty means no webhook. |
+| `Webhooks.UserDisconnected` | empty | URL to call when a client leaves. It must end with `/`. Empty means no webhook. |
+| `ClientRateLimiter.KBitPerSecLimit` | `0` | Maximum incoming traffic per client, in kbit/s. A client that goes over it has its IP address blocked for `blacklistDurationMs`. `0` means no limit. |
 
 ## Webhooks
 
@@ -305,13 +305,13 @@ Each relay sends webhooks to the URLs in its `Webhooks` settings. They're POST r
 
 ### `UserConnected`
 
-Sent when a player joins, which is when they send `OnAuth`, not when their UDP connection opens.
+Sent when a client joins, which is when it sends `OnAuth`, not when its UDP connection opens.
 
 ```json
 {
   "relayPort": 49791,
   "connUid": 1,
-  "token": "<the token the player joined with>",
+  "token": "<the token the client joined with>",
   "endpoint": "203.0.113.5:54012",
   "timestamp": "2026-10-10T10:56:28.239751Z"
 }
@@ -319,15 +319,15 @@ Sent when a player joins, which is when they send `OnAuth`, not when their UDP c
 
 | Field | Description |
 |---|---|
-| `relayPort` | Port of the relay the player joined. |
-| `connUid` | The player's UID on that relay. |
-| `token` | The exact token the player connected with. Use it to match the player to the token you issued. |
-| `endpoint` | The player's IP address and port. |
-| `timestamp` | When the player joined, in UTC (ISO 8601). |
+| `relayPort` | Port of the relay the client joined. |
+| `connUid` | The client's UID on that relay. |
+| `token` | The exact token the client connected with. Use it to match the client to the token you issued. |
+| `endpoint` | The client's IP address and port. |
+| `timestamp` | When the client joined, in UTC (ISO 8601). |
 
 ### `UserDisconnected`
 
-Sent when a player leaves: they disconnect, their connection times out, or they're dropped through [`/api/relay/drop_connection/`](#apirelaydrop_connection). It isn't sent when the relay itself is closed.
+Sent when a client leaves: it disconnects, its connection times out, or it's dropped through [`/api/relay/drop_connection/`](#apirelaydrop_connection). It isn't sent when the relay itself is closed.
 
 ```json
 {
