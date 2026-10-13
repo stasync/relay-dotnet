@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <!-- Builds for both targets Keel ships, so RelayClient.cs can be copied into any app that runs Keel, Unity included. C# 8 is the newest .NET Standard 2.1 supports by default. -->
+    <PropertyGroup>
+        <LangVersion>8</LangVersion>
+        <TargetFrameworks>netstandard2.1;net10.0</TargetFrameworks>
+        <RootNamespace>UdpRelay.Client</RootNamespace>
+        <ProduceReferenceAssembly>false</ProduceReferenceAssembly>
+    </PropertyGroup>
+
+    <!-- Keel libraries (https://github.com/stasync/keel-dotnet) are downloaded from GitHub releases on first build and cached in plugins/keel/, the same way runtime/relay.csproj does it, once per target framework. -->
+    <PropertyGroup>
+        <KeelVersion>latest-build</KeelVersion>
+        <KeelTargetFramework>$(TargetFramework)</KeelTargetFramework>
+        <KeelAsset>keel-$(KeelVersion)-$(KeelTargetFramework).zip</KeelAsset>
+        <KeelUrl>https://github.com/stasync/keel-dotnet/releases/download/$(KeelVersion)/$(KeelAsset)</KeelUrl>
+        <KeelDir>$(MSBuildThisFileDirectory)..\..\plugins\keel\$(KeelVersion)\$(KeelTargetFramework)\</KeelDir>
+    </PropertyGroup>
+
+    <Target Name="DownloadKeel" BeforeTargets="ResolveAssemblyReferences" Condition="!Exists('$(KeelDir)Keel.Utils.dll')">
+        <DownloadFile SourceUrl="$(KeelUrl)" DestinationFolder="$(KeelDir)" />
+        <Unzip SourceFiles="$(KeelDir)$(KeelAsset)" DestinationFolder="$(KeelDir)" />
+    </Target>
+
+    <!-- A client only needs the networking library, which depends on Keel.Utils. -->
+    <ItemGroup>
+        <Reference Include="Keel.Utils">
+            <HintPath>$(KeelDir)Keel.Utils.dll</HintPath>
+        </Reference>
+        <Reference Include="Keel.Networking">
+            <HintPath>$(KeelDir)Keel.Networking.dll</HintPath>
+        </Reference>
+    </ItemGroup>
+
+</Project>

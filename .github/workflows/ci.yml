@@ -30,8 +30,10 @@ jobs:
       - name: Test
         run: dotnet test tests/relay_tests.csproj
 
-      - name: Build example client
-        run: dotnet build examples/chat_client/chat_client.csproj
+      - name: Build example clients
+        run: |
+          dotnet build examples/chat_client/chat_client.csproj
+          dotnet build examples/relay_client/relay_client.csproj
 
       - name: Build
         if: github.ref == 'refs/heads/main'

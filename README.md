@@ -303,6 +303,51 @@ client.Connect(roomEndPoint, connectionData: token);
 client.RegisterDataTransferLayer(new DataTransferXorObfuscationLayer(udpEncryptionKey));
 ```
 
+### Reusable client
+
+[`examples/relay_client`](examples/relay_client/RelayClient.cs) wraps all of the above in one class, `RelayClient`, for use in your own app. Copy `RelayClient.cs` into a project that references `Keel.Utils.dll` and `Keel.Networking.dll`, or reference `relay_client.csproj`. It builds for .NET 10 and .NET Standard 2.1 with C# 8, so it works wherever Keel does.
+
+It handles the protocol for you:
+
+- It sends `OnAuth` once connected, and keeps `Clients` up to date as clients join and leave.
+- It raises `Disconnected` exactly once per `Connect()`, with the reason: `Left`, `Unreachable`, `RoomFull`, `InvalidToken` or `ConnectionLost`.
+- It throws instead of sending a message that would get the client's IP address blocked: a packet before the room confirms the join, or a payload over 65535 bytes.
+
+```csharp
+using System;
+using System.Text;
+using System.Threading;
+using UdpRelay.Client;
+
+var client = new RelayClient();
+
+client.Joined += () => Console.WriteLine($"Joined as client {client.Uid}. Clients here: {string.Join(", ", client.Clients)}");
+client.ClientJoined += uid => Console.WriteLine($"Client {uid} joined");
+client.ClientLeft += uid => Console.WriteLine($"Client {uid} left");
+client.PacketReceived += (senderUid, opCode, payload, deliveryMethod) =>
+    Console.WriteLine($"Client {senderUid} sent op {opCode}: {Encoding.UTF8.GetString(payload)}");
+client.Disconnected += reason => Console.WriteLine($"Disconnected: {reason}");
+
+client.Connect(nodeHost, roomPort, token);
+
+while (true)
+{
+    // Events are raised from inside Update(), on this thread.
+    client.Update();
+    Thread.Sleep(10);
+}
+```
+
+Once `Joined` fires, send with an op code and a payload. The delivery method defaults to `ReliableOrdered`:
+
+```csharp
+client.Send(7, Encoding.UTF8.GetBytes("hello"));                              // everyone except me
+client.SendTo(otherUid, 7, payload, UdpProtocol.DeliveryMethod.Unreliable);  // one client
+client.SendTo(new[] { firstUid, secondUid }, 7, payload);                    // the listed clients
+```
+
+A handler can call `Disconnect()`. To reconnect, call `Connect()` again with a new token, even from the `Disconnected` handler.
+
 ## Tests
 
 ```bash
@@ -317,7 +362,7 @@ To format the code, run `sh dotnet_format.sh`.
 
 GitHub Actions runs [`ci.yml`](.github/workflows/ci.yml) on every push:
 
-- **Any branch:** runs the tests and builds the example client.
+- **Any branch:** runs the tests and builds the example clients.
 - **`main`:** runs the tests, builds the relay in release mode, and publishes it as the [`latest-build`](https://github.com/stasync/relay-dotnet/releases/tag/latest-build) pre-release. Each push to `main` replaces that release and moves its tag to the new commit.
 
 The release contains one file, `relay-latest-build-net10.0.zip`. Unzip it and run `dotnet relay.dll -httpListenerUrl http://127.0.0.1:8080/` on a machine with the .NET 10 runtime. Other projects can download it from a fixed URL:
@@ -343,6 +388,7 @@ tests/                         xUnit tests
 docs/http-api.md               HTTP API and webhook reference
 docs/http-api-guide.md         walkthrough of the HTTP API, with curl and C# examples
 examples/chat_client/          runnable chat client that joins a room
+examples/relay_client/         reusable client class to copy into your app
 build.sh                       tests and builds into artifacts/
 startup.sh                     builds and runs a node in the foreground
 dotnet_format.sh               runs dotnet format on every project
