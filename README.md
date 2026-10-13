@@ -205,7 +205,7 @@ When a check fails, the room rejects the connection and blocks the client's IP a
 
 ## Writing a client
 
-Clients connect with Keel's `ReliableUdpClient`. The first byte of every message is its type. Values marked *packed* are written with `NetWriter.WritePackedUInt32` and read with `NetReader.ReadPackedUInt32`.
+Clients connect with Keel's `ReliableUdpClient`. The first byte of every message is its type. Values marked *packed* are written with `NetWriter.WritePackedUInt32` and read with `NetReader.ReadPackedUInt32`. The [UDP protocol reference](docs/udp-protocol.md) has the byte-level layout of everything on the wire, including Keel's own framing, and the size limits.
 
 Messages from the client:
 
@@ -311,7 +311,7 @@ It handles the protocol for you:
 
 - It sends `OnAuth` once connected, and keeps `Clients` up to date as clients join and leave.
 - It raises `Disconnected` exactly once per `Connect()`, with the reason: `Left`, `Unreachable`, `RoomFull`, `InvalidToken` or `ConnectionLost`.
-- It throws instead of sending a message that would get the client's IP address blocked: a packet before the room confirms the join, or a payload over 65535 bytes.
+- It throws instead of sending a packet before the room confirms the join, which would get the client's IP address blocked.
 
 ```csharp
 using System;
@@ -345,6 +345,8 @@ client.Send(7, Encoding.UTF8.GetBytes("hello"));                              //
 client.SendTo(otherUid, 7, payload, UdpProtocol.DeliveryMethod.Unreliable);  // one client
 client.SendTo(new[] { firstUid, secondUid }, 7, payload);                    // the listed clients
 ```
+
+Each packet must fit in one UDP datagram, which usually leaves 1429 bytes for the payload. A bigger one throws, so split large data across packets. [Size limits](docs/udp-protocol.md#size-limits) has the exact numbers.
 
 A handler can call `Disconnect()`. To reconnect, call `Connect()` again with a new token, even from the `Disconnected` handler.
 
@@ -387,6 +389,7 @@ runtime/                       the relay node (relay.csproj)
 tests/                         xUnit tests
 docs/http-api.md               HTTP API and webhook reference
 docs/http-api-guide.md         walkthrough of the HTTP API, with curl and C# examples
+docs/udp-protocol.md           byte-level layout of the UDP protocol, with size limits
 examples/chat_client/          runnable chat client that joins a room
 examples/relay_client/         reusable client class to copy into your app
 build.sh                       tests and builds into artifacts/

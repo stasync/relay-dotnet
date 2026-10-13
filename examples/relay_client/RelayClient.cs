@@ -181,7 +181,9 @@ namespace UdpRelay.Client
         /// Sends a packet to every other client in the room.
         /// </summary>
         /// <param name="opCode">Tells the receivers what the payload is. The room never reads it, so its meaning is up to the app.</param>
-        /// <param name="payload">Up to 65535 bytes. Use Keel's <see cref="NetWriter"/> to pack values into it.</param>
+        /// <param name="payload">Use Keel's <see cref="NetWriter"/> to pack values into it. The packet must fit in one UDP datagram
+        /// with its headers, which usually leaves 1429 bytes (see docs/udp-protocol.md). Keel throws
+        /// <see cref="InvalidOperationException"/> for a bigger one, and nothing is sent.</param>
         /// <param name="deliveryMethod">The room forwards the packet with the same delivery method.</param>
         public void Send(uint opCode, ArraySegment<byte> payload, UdpProtocol.DeliveryMethod deliveryMethod = UdpProtocol.DeliveryMethod.ReliableOrdered) =>
             SendPacket(opCode, payload, deliveryMethod, receiverUids: null);
@@ -223,9 +225,10 @@ namespace UdpRelay.Client
             if (State != ConnectionState.Joined)
                 throw new InvalidOperationException("Not in a room yet. Wait for the Joined event.");
 
-            // Keel can't write a longer payload, and the malformed message would get this IP address blocked.
+            // Keel's size check doesn't catch this one: NetWriter can't write a size this big, so it would leave the
+            // payload out, and the room would block this IP address for the malformed message.
             if (payload.Count > ushort.MaxValue)
-                throw new ArgumentException($"The payload is {payload.Count} bytes; the limit is {ushort.MaxValue}.", nameof(payload));
+                throw new ArgumentException($"The payload is {payload.Count} bytes, too big for one datagram.", nameof(payload));
 
             // OnPacket: op code, receiver count (0 means everyone except me), each receiver's UID, then the payload.
             _writer.SeekZero();
