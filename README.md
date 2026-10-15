@@ -302,13 +302,13 @@ writer.WriteBytesAndSize(Encoding.UTF8.GetBytes("hello"));
 client.Send(writer.AsArraySegment(), UdpProtocol.DeliveryMethod.ReliableOrdered);
 ```
 
-If the room has a `UdpEncryptionKey`, register the same key on the client right after `Connect()`, because the client creates its socket there:
+If the room has a `UdpObfuscationKey`, register the same key on the client right after `Connect()`, because the client creates its socket there:
 
 ```csharp
 using Keel.Networking.Udp.LowLevel.DataTransferLayers;
 
 client.Connect(roomEndPoint, connectionData: token);
-client.RegisterDataTransferLayer(new DataTransferXorObfuscationLayer(udpEncryptionKey));
+client.RegisterDataTransferLayer(new DataTransferXorObfuscationLayer(udpObfuscationKey));
 ```
 
 ### Reusable client

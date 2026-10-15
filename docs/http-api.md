@@ -300,7 +300,7 @@ Returns 404 if no client with that UID is in the room.
   "TargetPort": 0,
   "Name": "Lobby",
   "ConnectionKey": "6f9b2c1e-4d7a-4e8b-9a3f-1c5d7e9b2a40",
-  "UdpEncryptionKey": "",
+  "UdpObfuscationKey": "",
   "CaptureDataTransferAmount": true,
   "Webhooks": {
     "ClientJoined": "http://127.0.0.1:3000/webhooks/client_joined/",
@@ -317,7 +317,7 @@ Returns 404 if no client with that UID is in the room.
 | `TargetPort` | `0` | UDP port to listen on. `0` picks a free port. |
 | `Name` | `Room_<port>` | The room's name, shown in logs and status. |
 | `ConnectionKey` | empty | Secret used to check [connection tokens](../README.md#connection-tokens). If it's empty, anyone can join, so use that only for testing. |
-| `UdpEncryptionKey` | empty | If set, all UDP traffic is XOR-scrambled with this key, and clients must do the same (see [Writing a client](../README.md#writing-a-client)). This hides traffic from casual inspection but is not real encryption. |
+| `UdpObfuscationKey` | empty | If set, all UDP traffic is XOR-scrambled with this key, and clients must do the same (see [Writing a client](../README.md#writing-a-client)). This hides traffic from casual inspection but is not real encryption. |
 | `CaptureDataTransferAmount` | `false` | Counts traffic, reported as `bytesSent` and `bytesReceived` by `GET /api/rooms`. |
 | `Webhooks.ClientJoined` | empty | URL to call when a client joins. It must end with `/`. Empty means no webhook. |
 | `Webhooks.ClientLeft` | empty | URL to call when a client leaves. It must end with `/`. Empty means no webhook. |

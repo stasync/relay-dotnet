@@ -124,8 +124,8 @@ Console.CancelKeyPress += (_, e) =>
 Console.WriteLine($"Connecting to {host}:{port}...");
 client.Connect(new IPEndPoint(host, port), connectionData: token);
 
-// If the room has a UdpEncryptionKey, register the same key here, right after Connect():
-// client.RegisterDataTransferLayer(new Keel.Networking.Udp.LowLevel.DataTransferLayers.DataTransferXorObfuscationLayer(udpEncryptionKey));
+// If the room has a UdpObfuscationKey, register the same key here, right after Connect():
+// client.RegisterDataTransferLayer(new Keel.Networking.Udp.LowLevel.DataTransferLayers.DataTransferXorObfuscationLayer(udpObfuscationKey));
 
 var writer = new NetWriter();
 while (running)

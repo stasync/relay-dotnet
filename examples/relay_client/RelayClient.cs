@@ -17,7 +17,7 @@ namespace UdpRelay.Client
         /// <summary><see cref="RelayClient.Disconnect"/> was called.</summary>
         Left,
 
-        /// <summary>The room didn't answer: wrong address or port, wrong <c>UdpEncryptionKey</c>, the room is closed, or this IP address is blocked.</summary>
+        /// <summary>The room didn't answer: wrong address or port, wrong <c>UdpObfuscationKey</c>, the room is closed, or this IP address is blocked.</summary>
         Unreachable,
 
         /// <summary>The room already has as many clients as the node's <c>maxClientsPerRoom</c> allows.</summary>
@@ -126,8 +126,8 @@ namespace UdpRelay.Client
         /// <param name="roomEndPoint">The node's address and the room's UDP port.</param>
         /// <param name="token">The connection token. Needed when the room has a <c>ConnectionKey</c>. A token works
         /// only once, so a reconnecting client needs a new one.</param>
-        /// <param name="udpEncryptionKey">The room's <c>UdpEncryptionKey</c>, if it has one.</param>
-        public void Connect(IPEndPoint roomEndPoint, string token = null, string udpEncryptionKey = null)
+        /// <param name="udpObfuscationKey">The room's <c>UdpObfuscationKey</c>, if it has one.</param>
+        public void Connect(IPEndPoint roomEndPoint, string token = null, string udpObfuscationKey = null)
         {
             if (State != ConnectionState.Disconnected)
                 throw new InvalidOperationException("Already connected. Call Disconnect() first.");
@@ -136,15 +136,15 @@ namespace UdpRelay.Client
             State = ConnectionState.Connecting;
 
             // The client creates its socket in Connect(), so the layer has to be registered after it, every time.
-            if (!string.IsNullOrEmpty(udpEncryptionKey))
-                _udpClient.RegisterDataTransferLayer(new DataTransferXorObfuscationLayer(udpEncryptionKey));
+            if (!string.IsNullOrEmpty(udpObfuscationKey))
+                _udpClient.RegisterDataTransferLayer(new DataTransferXorObfuscationLayer(udpObfuscationKey));
         }
 
         /// <summary>
         /// Starts connecting to a room. <paramref name="host"/> is an IP address or a host name. Resolving a name
         /// blocks until DNS answers.
         /// </summary>
-        public void Connect(string host, int port, string token = null, string udpEncryptionKey = null)
+        public void Connect(string host, int port, string token = null, string udpObfuscationKey = null)
         {
             var address = IPAddress.TryParse(host, out var parsed)
                 ? parsed
@@ -153,7 +153,7 @@ namespace UdpRelay.Client
             if (address == null)
                 throw new ArgumentException($"'{host}' has no IPv4 address.", nameof(host));
 
-            Connect(new IPEndPoint(address, port), token, udpEncryptionKey);
+            Connect(new IPEndPoint(address, port), token, udpObfuscationKey);
         }
 
         /// <summary>

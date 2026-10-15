@@ -91,9 +91,9 @@ For example, `00 00 01 00 01 00 00 00 01` acknowledges datagram 1 on channel `1`
 
 The sender keeps each reliable datagram until it's acknowledged. It resends it after 100 ms, then waits twice as long before each new try, up to 1 s between tries. That's resends at about 100, 300, 700 and 1500 ms. After 2 s it gives up on that datagram. Giving up doesn't end the connection by itself, but by then the session layer's heartbeat timeout has usually ended it anyway.
 
-### UdpEncryptionKey
+### UdpObfuscationKey
 
-When a room has a `UdpEncryptionKey`, every datagram is XOR-scrambled in both directions, header and acks included. Byte `i` of the datagram is XORed with byte `i % n` of the key's UTF-8 bytes, where `n` is the key's length in bytes. The sender scrambles the datagram as the very last step, and the receiver unscrambles it before reading anything else.
+When a room has a `UdpObfuscationKey`, every datagram is XOR-scrambled in both directions, header and acks included. Byte `i` of the datagram is XORed with byte `i % n` of the key's UTF-8 bytes, where `n` is the key's length in bytes. The sender scrambles the datagram as the very last step, and the receiver unscrambles it before reading anything else.
 
 A client with the wrong key, or no key, sends a scrambled protocol key, so the room drops its datagrams silently. To the client, the room looks unreachable. This hides traffic from casual inspection, but it isn't real encryption.
 

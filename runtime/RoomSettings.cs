@@ -6,7 +6,7 @@ namespace UdpRelay
     {
         [JsonInclude] internal string Name { get; set; }
         [JsonInclude] internal int TargetPort { get; set; }
-        [JsonInclude] internal string UdpEncryptionKey { get; set; } = string.Empty;
+        [JsonInclude] internal string UdpObfuscationKey { get; set; } = string.Empty;
         [JsonInclude] internal string ConnectionKey { get; set; } = string.Empty;
         [JsonInclude] internal bool CaptureDataTransferAmount { get; set; }
         [JsonInclude] internal WebhooksData Webhooks { get; set; } = new();

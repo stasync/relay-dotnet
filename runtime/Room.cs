@@ -123,8 +123,8 @@ namespace UdpRelay
         internal Room(RoomSettings settings, int maxClients, ushort protocolKey, int updateIntervalMs) : base(updateIntervalMs, settings.Name.Trim(), monitor: true)
         {
             _udpServer = new ReliableUdpServer(maxClients, settings.TargetPort, protocolKey);
-            if (!string.IsNullOrWhiteSpace(settings.UdpEncryptionKey))
-                _udpServer.RegisterDataTransferLayer(new DataTransferXorObfuscationLayer(settings.UdpEncryptionKey));
+            if (!string.IsNullOrWhiteSpace(settings.UdpObfuscationKey))
+                _udpServer.RegisterDataTransferLayer(new DataTransferXorObfuscationLayer(settings.UdpObfuscationKey));
 
             if (settings.ClientRateLimiter?.KBitPerSecLimit > 0)
             {
