@@ -121,7 +121,7 @@ A node exits when its last room closes. That happens after the final room is clo
 
 The backend controls a node through a REST API. Every response is JSON, and each path accepts only the methods listed for it; any other method gets 405.
 
-Every request must send the node's API key (the `httpApiKey` launch argument) as `Authorization: Bearer <key>`, or it gets 401. The key travels as plain text, so keep the API on `127.0.0.1` or a private network.
+Every request must send the node's API key (the `httpApiKey` launch argument) as `Authorization: Bearer <key>`, or it gets 401. The key travels as plain text, so keep the API on `127.0.0.1` or a private network. [Known issues](docs/known-issues.md) lists what the key doesn't protect, such as webhooks and log files.
 
 | Method | Path | What it does |
 |---|---|---|
@@ -411,6 +411,7 @@ docs/http-api.md               HTTP API and webhook reference
 docs/http-api-guide.md         walkthrough of the HTTP API, with curl, C# and Node.js examples
 docs/udp-protocol.md           byte-level layout of the UDP protocol, with size limits
 docs/layers-and-simulators.md  data transfer layers and packet simulators
+docs/known-issues.md           security gaps and limitations, with workarounds
 examples/chat_client/          runnable chat client that joins a room
 examples/relay_client/         reusable client class to copy into your app
 examples/node_backend/         Node.js backend: opens a room, issues tokens, receives webhooks
