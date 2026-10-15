@@ -358,6 +358,15 @@ Each packet must fit in one UDP datagram, which usually leaves 1429 bytes for th
 
 A handler can call `Disconnect()`. To reconnect, call `Connect()` again with a new token, even from the `Disconnected` handler.
 
+## Data transfer layers and packet simulators
+
+Keel lets a room or a client hook into every datagram right at the socket:
+
+- **Data transfer layers** see each datagram in both directions and can change its bytes. A room registers up to three, depending on its settings: XOR obfuscation for `UdpObfuscationKey`, the rate limiter for `ClientRateLimiter`, and traffic counters for `CaptureDataTransferAmount`.
+- **Packet simulators** drop, delay or duplicate incoming datagrams, to test how a client copes with a bad network. Keel has six, from random loss to dropping everything. Relay doesn't register any.
+
+Register both once, at startup: a room in its constructor, and a client right after each `Connect()`. [Data transfer layers and packet simulators](docs/layers-and-simulators.md) covers the order they run in, the ones Keel provides, how to write your own, and what each simulated problem looks like to your app.
+
 ## Tests
 
 ```bash
@@ -398,6 +407,7 @@ tests/                         xUnit tests
 docs/http-api.md               HTTP API and webhook reference
 docs/http-api-guide.md         walkthrough of the HTTP API, with curl, C# and Node.js examples
 docs/udp-protocol.md           byte-level layout of the UDP protocol, with size limits
+docs/layers-and-simulators.md  data transfer layers and packet simulators
 examples/chat_client/          runnable chat client that joins a room
 examples/relay_client/         reusable client class to copy into your app
 examples/node_backend/         Node.js backend: opens a room, issues tokens, receives webhooks

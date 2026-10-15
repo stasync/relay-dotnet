@@ -97,6 +97,8 @@ When a room has a `UdpObfuscationKey`, every datagram is XOR-scrambled in both d
 
 A client with the wrong key, or no key, sends a scrambled protocol key, so the room drops its datagrams silently. To the client, the room looks unreachable. This hides traffic from casual inspection, but it isn't real encryption.
 
+Keel does the scrambling in a data transfer layer. [Data transfer layers and packet simulators](layers-and-simulators.md) explains where that layer runs, and why a client's first Connect datagram goes out unscrambled and is resent.
+
 ## Session layer
 
 A session message fills the rest of a payload datagram. Its first byte is a message code, and the codes differ by direction.
