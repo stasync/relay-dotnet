@@ -131,7 +131,7 @@ namespace UdpRelay
                 var layer = new IncomingDataAmountTracker(settings.ClientRateLimiter.KBitPerSecLimit);
                 layer.LimitExceeded += endpoint =>
                 {
-                    TryAddToBlacklist(endpoint.Address, reason: $"Client data transfer limit ({settings.ClientRateLimiter.KBitPerSecLimit}KBit/S) exceeded");
+                    AddToBlacklist(endpoint.Address, reason: $"Client data transfer limit ({settings.ClientRateLimiter.KBitPerSecLimit}KBit/S) exceeded");
                 };
                 _udpServer.RegisterDataTransferLayer(layer);
             }
@@ -227,7 +227,7 @@ namespace UdpRelay
                 Logger.LogError($"[{nameof(OnConnected)}] New connection from '{ipEndPoint}' rejected with reason '{reason}'.");
 
             if (reason == ReliableUdpClient.RejectionReason.ValidationFailure)
-                TryAddToBlacklist(ipEndPoint.Address, reason: "Client connection validation failed");
+                AddToBlacklist(ipEndPoint.Address, reason: "Client connection validation failed");
         }
 
         internal void DropClient(uint uid)
@@ -258,7 +258,7 @@ namespace UdpRelay
                             // If a connection already exists, we shouldn't handle the 'OnAuth' message type.
                             if (!_clients.TryAdd(senderConnectionUid, clientData.Token))
                             {
-                                TryAddToBlacklist(senderConnectionUid, reason: $"Connection '{senderConnectionUid}' doesn't exist");
+                                AddToBlacklist(senderConnectionUid, reason: $"Connection '{senderConnectionUid}' doesn't exist");
                                 break;
                             }
 
@@ -288,7 +288,7 @@ namespace UdpRelay
                         {
                             if (!_clients.ContainsKey(senderConnectionUid))
                             {
-                                TryAddToBlacklist(senderConnectionUid, reason: $"Connection '{senderConnectionUid}' doesn't exist");
+                                AddToBlacklist(senderConnectionUid, reason: $"Connection '{senderConnectionUid}' doesn't exist");
                                 break;
                             }
 
@@ -333,18 +333,18 @@ namespace UdpRelay
                         break;
 
                     default:
-                        TryAddToBlacklist(senderConnectionUid, reason: $"Unknown message type '{type}'");
+                        AddToBlacklist(senderConnectionUid, reason: $"Unknown message type '{type}'");
                         break;
                 }
             }
             catch (Exception e)
             {
                 Logger.LogException(e);
-                TryAddToBlacklist(senderConnectionUid, reason: e.Message);
+                AddToBlacklist(senderConnectionUid, reason: e.Message);
             }
         }
 
-        private void TryAddToBlacklist(uint connectionUid, string reason = null)
+        private void AddToBlacklist(uint connectionUid, string reason = null)
         {
             if (BlacklistDurationMs < 1)
                 return;
@@ -353,7 +353,7 @@ namespace UdpRelay
                 _udpServer.AddAddressToBlacklistIfAbsent(endPoint.Address, millisecondsToAdd: BlacklistDurationMs, reason);
         }
 
-        private void TryAddToBlacklist(IPAddress address, string reason = null)
+        private void AddToBlacklist(IPAddress address, string reason = null)
         {
             if (BlacklistDurationMs >= 1)
                 _udpServer.AddAddressToBlacklistIfAbsent(address, millisecondsToAdd: BlacklistDurationMs, reason);
@@ -368,7 +368,7 @@ namespace UdpRelay
         }
 
         private void OnUnexpectedClientAction(IPEndPoint ipEndPoint, string description) =>
-            TryAddToBlacklist(ipEndPoint.Address, reason: description);
+            AddToBlacklist(ipEndPoint.Address, reason: description);
 
         protected override void OnUpdate()
         {
