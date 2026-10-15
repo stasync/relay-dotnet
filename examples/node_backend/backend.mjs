@@ -1,8 +1,9 @@
 // A minimal Relay backend in Node.js: opens a room with its own connection key, hands out tokens,
 // and logs who joins and leaves through the room's webhooks. Needs Node.js 18 or newer, and no packages.
 //
-// Usage: node examples/node_backend/backend.mjs [nodeUrl]
-//   nodeUrl  HTTP API of a running relay node, default http://127.0.0.1:8080/
+// Usage: HTTP_API_KEY=<key> node examples/node_backend/backend.mjs [nodeUrl]
+//   HTTP_API_KEY  the node's HTTP API key, which `sh startup.sh` prints
+//   nodeUrl       HTTP API of a running relay node, default http://127.0.0.1:8080/
 //
 // Start a node first with `sh startup.sh`. Press Enter to get a command that joins the room with the
 // chat client, using a new token. Ctrl+C closes the room, which also stops the node if it was its last room.
@@ -13,7 +14,13 @@ import readline from 'node:readline';
 import { createToken } from './relay-token.mjs';
 
 const nodeUrl = process.argv[2] ?? 'http://127.0.0.1:8080/';
+const apiKey = process.env.HTTP_API_KEY;
 const webhookUrl = 'http://127.0.0.1:3000/';
+
+if (!apiKey) {
+    console.error('Set HTTP_API_KEY to the node\'s HTTP API key. `sh startup.sh` prints it.');
+    process.exit(1);
+}
 
 // `dotnet run` builds the chat client before it connects, so give each token a minute instead of the usual 30 seconds.
 const tokenLifetimeMs = 60_000;
@@ -22,7 +29,7 @@ const tokenLifetimeMs = 60_000;
 async function api(method, path, body) {
     const response = await fetch(new URL(path, nodeUrl), {
         method,
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
         body: body && JSON.stringify(body),
     });
     const json = await response.json();
@@ -75,7 +82,7 @@ try {
     }));
 } catch (error) {
     console.error(`Couldn't open a room on ${nodeUrl}: ${error.cause?.message ?? error.message}`);
-    console.error('Start a node with `sh startup.sh` first.');
+    console.error('Start a node with `sh startup.sh` first, and set HTTP_API_KEY to the key it prints.');
     process.exit(1);
 }
 

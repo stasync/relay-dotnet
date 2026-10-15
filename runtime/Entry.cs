@@ -31,7 +31,8 @@ namespace UdpRelay
             var temporaryLogOutput = new Logger.QueueOutput();
             Logger.SetCustomOutput(temporaryLogOutput);
 
-            Logger.LogInfo($"Startup path: '{DomainUtils.DomainDirectory}{string.Join(" ", args)}'.");
+            // The arguments themselves aren't logged, as they may hold the HTTP API key. Their parsed values are logged below, with the key hidden.
+            Logger.LogInfo($"Startup path: '{DomainUtils.DomainDirectory}'.");
             Logger.LogInfo($"Platform: '{DomainUtils.Platform}'.");
             Logger.LogInfo($"PID: '{Environment.ProcessId}'.");
             Logger.LogInfo($"Environment: '{Environment.UserName}'.");
@@ -140,19 +141,22 @@ namespace UdpRelay
                 };
 
                 // If port equals 0, it's a valid case where a 1st available port should be picked.
-                if (Utils.IsValidUrl(s_startupArguments.HttpListenerUrl))
+                if (!Utils.IsValidUrl(s_startupArguments.HttpListenerUrl))
+                    Logger.LogWarning($"Unable to initialize IPC ({nameof(HttpServer)} and {nameof(HttpWebhookSender)}) as external startup URL parameter is invalid: '{s_startupArguments.HttpListenerUrl}'.");
+                // The API exposes every client's token and can close any room, so it never runs without a key.
+                else if (string.IsNullOrWhiteSpace(s_startupArguments.HttpApiKey))
+                    Logger.LogError($"Unable to initialize IPC ({nameof(HttpServer)} and {nameof(HttpWebhookSender)}) as the 'httpApiKey' startup parameter is empty.");
+                else
                 {
                     // Create an http webhook sender.
                     // We only create it if IPC is initialized (HttpServer), otherwise it's just useless.
                     s_httpWebhookSender = new HttpWebhookSender();
 
                     // Create an http server to maintain IPC.
-                    s_httpServer = new HttpServer(url: s_startupArguments.HttpListenerUrl);
+                    s_httpServer = new HttpServer(url: s_startupArguments.HttpListenerUrl, apiKey: s_startupArguments.HttpApiKey);
                     s_httpRequestHandler.Bind(s_httpServer);
                     s_httpServer.StartBlocking();
                 }
-                else
-                    Logger.LogWarning($"Unable to initialize IPC ({nameof(HttpServer)} and {nameof(HttpWebhookSender)}) as external startup URL parameter is invalid: '{s_startupArguments.HttpListenerUrl}'.");
             }
             catch (Exception e)
             {

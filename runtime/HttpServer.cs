@@ -20,17 +20,22 @@ namespace UdpRelay
 
         private readonly HttpListener _listener = new();
         private readonly string _url;
+        private readonly string _expectedAuthorization;
         private readonly int _urlPathSegmentCount;
         private readonly List<Route> _routes = new();
 
         private bool _isRunning;
 
-        internal HttpServer(string url)
+        internal HttpServer(string url, string apiKey)
         {
             if (!Utils.IsValidUrl(url))
                 throw new ArgumentException("Invalid url", nameof(url));
 
+            if (string.IsNullOrWhiteSpace(apiKey))
+                throw new ArgumentException("Empty API key", nameof(apiKey));
+
             _url = url;
+            _expectedAuthorization = $"Bearer {apiKey}";
             _listener.Prefixes.Add(_url);
             _isRunning = false;
 
@@ -143,6 +148,14 @@ namespace UdpRelay
                     !string.Equals(context.Request.Headers["Transfer-Encoding"], "chunked", StringComparison.OrdinalIgnoreCase))
                 {
                     Logger.LogError($"[{GetType().FullName}] Ignoring {context.Request.HttpMethod} {context.Request.Url!.AbsolutePath}: no Content-Length, already answered with 411.");
+                    return;
+                }
+
+                // Every request must carry the API key, as "Authorization: Bearer <key>".
+                if (context.Request.Headers["Authorization"] != _expectedAuthorization)
+                {
+                    Logger.LogError($"[{GetType().FullName}] Rejected {context.Request.HttpMethod} {context.Request.Url!.AbsolutePath} from {context.Request.RemoteEndPoint}: missing or wrong API key.");
+                    await SendErrorResponseAsync(context.Response, statusCode: 401, errorMessage: "Missing or wrong API key.");
                     return;
                 }
 

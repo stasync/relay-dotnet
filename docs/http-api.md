@@ -14,7 +14,7 @@ This page lists every endpoint, the settings a room accepts, and the webhooks it
 
 ## Conventions
 
-**Base URL.** The API listens on the address given by the node's `httpListenerUrl` launch argument, such as `http://127.0.0.1:8080/`. Without that argument, the API and webhooks are off.
+**Base URL.** The API listens on the address given by the node's `httpListenerUrl` launch argument, such as `http://127.0.0.1:8080/`. Without that argument, or without `httpApiKey`, the API and webhooks are off.
 
 **Paths.** Paths are case-insensitive, and a trailing slash is optional: `/api/rooms` and `/api/rooms/` are the same.
 
@@ -22,7 +22,7 @@ This page lists every endpoint, the settings a room accepts, and the webhooks it
 
 **Request bodies.** Only `POST /api/rooms` takes a body: JSON, sent with a `Content-Length` (or chunked). Most clients, including `curl --data` and `fetch`, set it for you. A `POST` without a body length is answered with 411 and ignored.
 
-**No authentication.** Anyone who can reach the API can open, inspect and close rooms. Keep it on a local address such as `127.0.0.1`, or behind a firewall.
+**Authentication.** Every request must send the node's API key, set with the `httpApiKey` [launch argument](../README.md#launch-arguments), as `Authorization: Bearer <key>`. Without it, any request gets 401 and does nothing. The key travels as plain text, so keep the API on a local address such as `127.0.0.1`, or on a private network.
 
 **Responses.** Every response is JSON. A successful one always contains:
 
@@ -39,6 +39,7 @@ This page lists every endpoint, the settings a room accepts, and the webhooks it
 | 200 OK | The request succeeded. |
 | 201 Created | A room was opened. The `Location` header points at it. |
 | 400 Bad Request | A port, client UID or room settings value is invalid. |
+| 401 Unauthorized | The `Authorization` header is missing or wrong. |
 | 404 Not Found | No such room, client or path. |
 | 405 Method Not Allowed | The path doesn't accept that method. `Allow` lists the ones it does. |
 | 409 Conflict | The requested room port is already in use. |
@@ -159,6 +160,7 @@ Opens a new room on its own thread. The body holds the [room settings](#room-set
 
 ```bash
 curl -X POST "http://127.0.0.1:8080/api/rooms" \
+  -H "Authorization: Bearer $HTTP_API_KEY" \
   -H "Content-Type: application/json" \
   --data '{"Name": "Lobby", "ConnectionKey": "6f9b2c1e-4d7a-4e8b-9a3f-1c5d7e9b2a40"}'
 ```

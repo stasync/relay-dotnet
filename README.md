@@ -60,13 +60,13 @@ The version comes from the `KeelVersion` property in `runtime/relay.csproj`. The
 
 ## Running
 
-The quickest way to start a node is `startup.sh`. It builds Relay with `dotnet run` and runs the node in the foreground, with the HTTP API on `http://127.0.0.1:8080/`. Stop it with Ctrl+C.
+The quickest way to start a node is `startup.sh`. It builds Relay with `dotnet run` and runs the node in the foreground, with the HTTP API on `http://127.0.0.1:8080/` and a new random [API key](#http-api), which it prints. Stop it with Ctrl+C.
 
 ```bash
 sh startup.sh
 ```
 
-Set `HTTP_LISTENER_URL` to use a different address. Any arguments are passed on to the node:
+Set `HTTP_LISTENER_URL` to use a different address, and `HTTP_API_KEY` to use a key of your own. Any arguments are passed on to the node:
 
 ```bash
 HTTP_LISTENER_URL=http://127.0.0.1:9000/ sh startup.sh -maxClientsPerRoom 32
@@ -77,7 +77,7 @@ When started this way, the node's log files and `.cmdparam` files live in `runti
 To run the output of `build.sh` instead:
 
 ```bash
-dotnet artifacts/bin/relay/release/relay.dll -httpListenerUrl http://127.0.0.1:8080/
+dotnet artifacts/bin/relay/release/relay.dll -httpListenerUrl http://127.0.0.1:8080/ -httpApiKey <key>
 ```
 
 Either way, the node starts with the HTTP API and no rooms open. Open rooms through the API, as shown under [Opening a room](#opening-a-room).
@@ -103,6 +103,7 @@ Launch arguments configure the node and apply to all of its rooms. They use a si
 | Argument | Default | Description |
 |---|---|---|
 | `httpListenerUrl` | empty | Address for the HTTP API, such as `http://127.0.0.1:8080/`. It must end with `/`. Without it, the API and webhooks are off. |
+| `httpApiKey` | empty | Secret that every HTTP API request must send as `Authorization: Bearer <key>`. Use a long random value, such as the output of `openssl rand -hex 32`. Without it, the API and webhooks are off. |
 | `roomPort` | none | Opens a room on this UDP port at startup. Repeat it to open more rooms. `0` picks a free port. These rooms have no connection key, so anyone can join: use them only for local testing. |
 | `maxClientsPerRoom` | `16` | Maximum number of clients in one room. |
 | `protocolKey` | `0` | Key that UDP packets must carry to be accepted. Keel's `ReliableUdpClient` always sends `0`, so keep the default unless your clients use a different key. |
@@ -118,7 +119,9 @@ A node exits when its last room closes. That happens after the final room is clo
 
 ## HTTP API
 
-The backend controls a node through a REST API. Every response is JSON, and each path accepts only the methods listed for it; any other method gets 405. The API has no authentication, so keep it on a local address such as `127.0.0.1`.
+The backend controls a node through a REST API. Every response is JSON, and each path accepts only the methods listed for it; any other method gets 405.
+
+Every request must send the node's API key (the `httpApiKey` launch argument) as `Authorization: Bearer <key>`, or it gets 401. The key travels as plain text, so keep the API on `127.0.0.1` or a private network. [Known issues](docs/known-issues.md) lists what the key doesn't protect, such as webhooks and log files.
 
 | Method | Path | What it does |
 |---|---|---|
@@ -133,7 +136,7 @@ The backend controls a node through a REST API. Every response is JSON, and each
 | `GET` | `/api/rooms/{port}/clients/{uid}` | Returns one client, or 404 if it isn't in the room. |
 | `DELETE` | `/api/rooms/{port}/clients/{uid}` | Disconnects a client. The other clients get `OnDisconnect` and the `ClientLeft` webhook fires. |
 
-Errors use the matching status code (400, 404, 405, 409, or 500 for anything unexpected), with the reason in an `error` field.
+Errors use the matching status code (400, 401, 404, 405, 409, or 500 for anything unexpected), with the reason in an `error` field.
 
 [Using the HTTP API](docs/http-api-guide.md) walks through a room's whole life, from opening it to closing it, with `curl`, C# and Node.js examples. For each endpoint's parameters, responses and errors, see the [HTTP API reference](docs/http-api.md).
 
@@ -142,7 +145,7 @@ Errors use the matching status code (400, 404, 405, 409, or 500 for anything une
 Send the room settings as the JSON body of a `POST`:
 
 ```bash
-curl -X POST "http://127.0.0.1:8080/api/rooms" -H "Content-Type: application/json" --data '{
+curl -X POST "http://127.0.0.1:8080/api/rooms" -H "Authorization: Bearer $HTTP_API_KEY" -H "Content-Type: application/json" --data '{
   "TargetPort": 0,
   "ConnectionKey": "6f9b2c1e-4d7a-4e8b-9a3f-1c5d7e9b2a40",
   "Webhooks": {
@@ -384,7 +387,7 @@ GitHub Actions runs [`ci.yml`](.github/workflows/ci.yml) on every push:
 - **Any branch:** runs the tests and builds the example clients.
 - **`main`:** runs the tests, builds the relay in release mode, and publishes it as the [`latest-build`](https://github.com/stasync/relay-dotnet/releases/tag/latest-build) pre-release. Each push to `main` replaces that release and moves its tag to the new commit.
 
-The release contains one file, `relay-latest-build-net10.0.zip`. Unzip it and run `dotnet relay.dll -httpListenerUrl http://127.0.0.1:8080/` on a machine with the .NET 10 runtime. Other projects can download it from a fixed URL:
+The release contains one file, `relay-latest-build-net10.0.zip`. Unzip it and run `dotnet relay.dll -httpListenerUrl http://127.0.0.1:8080/ -httpApiKey <key>` on a machine with the .NET 10 runtime. Other projects can download it from a fixed URL:
 
 ```
 https://github.com/stasync/relay-dotnet/releases/download/latest-build/relay-latest-build-net10.0.zip
@@ -398,7 +401,7 @@ runtime/                       the relay node (relay.csproj)
   Entry.cs                     startup, launch arguments, HTTP routes, shutdown
   Room.cs                      one room: token checks, routing, blocking
   RoomSettings.cs              settings accepted by POST /api/rooms
-  HttpServer.cs                HTTP listener: matches each request's method and path to a handler
+  HttpServer.cs                HTTP listener: checks the API key, then matches each request's method and path to a handler
   RouteTemplate.cs             path templates such as /api/rooms/{port}/clients/{uid}
   HttpRequestHandler.cs        HTTP API endpoints
   HttpWebhookSender.cs         webhooks, with retry
@@ -408,6 +411,7 @@ docs/http-api.md               HTTP API and webhook reference
 docs/http-api-guide.md         walkthrough of the HTTP API, with curl, C# and Node.js examples
 docs/udp-protocol.md           byte-level layout of the UDP protocol, with size limits
 docs/layers-and-simulators.md  data transfer layers and packet simulators
+docs/known-issues.md           security gaps and limitations, with workarounds
 examples/chat_client/          runnable chat client that joins a room
 examples/relay_client/         reusable client class to copy into your app
 examples/node_backend/         Node.js backend: opens a room, issues tokens, receives webhooks
