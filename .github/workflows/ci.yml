@@ -83,5 +83,5 @@ jobs:
             --title "Latest build" \
             --notes "Built automatically from the newest commit on main: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$GITHUB_SHA
 
-          Unzip and run with \`dotnet relay.dll -httpListenerUrl http://127.0.0.1:8080/\` (needs the .NET 10 runtime).
+          Unzip and run with \`dotnet relay.dll -httpListenerUrl http://127.0.0.1:8080/ -httpApiKey <key>\` (needs the .NET 10 runtime).
           This build is replaced on every push to main."

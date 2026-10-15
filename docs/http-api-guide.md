@@ -10,22 +10,30 @@ The [HTTP API reference](http-api.md) lists every endpoint's fields and errors. 
 sh startup.sh
 ```
 
-This builds Relay and starts a node with its HTTP API on `http://127.0.0.1:8080/`. Check that it answers:
+This builds Relay and starts a node with its HTTP API on `http://127.0.0.1:8080/`, and prints a new random API key. Every request must send that key as `Authorization: Bearer <key>`, or it gets 401. Save it in the terminal you'll use for the steps below:
 
 ```bash
-curl http://127.0.0.1:8080/api/status
+export HTTP_API_KEY=<the printed key>
+```
+
+Then check that the node answers:
+
+```bash
+curl http://127.0.0.1:8080/api/status -H "Authorization: Bearer $HTTP_API_KEY"
 ```
 
 ```json
 {"status":"success","pid":40634,"timestamp":"2026-10-12T16:13:03.241445Z","method":"GET"}
 ```
 
+To use your own key, set `HTTP_API_KEY` before running `startup.sh`. Without `startup.sh`, pass it with the `httpApiKey` [launch argument](../README.md#launch-arguments).
+
 ## 2. Open a room
 
 Give each room its own `ConnectionKey`: a long random value, such as a GUID. Only clients with a token made from that key can join. Add webhook URLs to hear when clients join and leave; they must end with `/`.
 
 ```bash
-curl -X POST http://127.0.0.1:8080/api/rooms -H "Content-Type: application/json" --data '{
+curl -X POST http://127.0.0.1:8080/api/rooms -H "Authorization: Bearer $HTTP_API_KEY" -H "Content-Type: application/json" --data '{
   "Name": "Lobby",
   "ConnectionKey": "6f9b2c1e-4d7a-4e8b-9a3f-1c5d7e9b2a40",
   "Webhooks": {
@@ -99,13 +107,13 @@ Webhooks are plain JSON `POST` requests, so any web framework can receive them. 
 
 ```bash
 # Every client in the room
-curl http://127.0.0.1:8080/api/rooms/53247/clients
+curl http://127.0.0.1:8080/api/rooms/53247/clients -H "Authorization: Bearer $HTTP_API_KEY"
 
 # The client that joined with a token (curl URL-encodes it)
-curl -G http://127.0.0.1:8080/api/rooms/53247/clients --data-urlencode "token=<token>"
+curl -G http://127.0.0.1:8080/api/rooms/53247/clients -H "Authorization: Bearer $HTTP_API_KEY" --data-urlencode "token=<token>"
 
 # One client by UID
-curl http://127.0.0.1:8080/api/rooms/53247/clients/1
+curl http://127.0.0.1:8080/api/rooms/53247/clients/1 -H "Authorization: Bearer $HTTP_API_KEY"
 ```
 
 The token lookup returns a list with that client, or an empty list if no client in the room used the token:
@@ -114,12 +122,12 @@ The token lookup returns a list with that client, or an empty list if no client 
 {"status":"success","timestamp":"2026-10-12T16:13:07.552422Z","method":"GET","clientsCount":1,"clients":[{"uid":1,"token":"<token>"}]}
 ```
 
-Looking up a UID returns 404 once that client has left. For the whole room, with its name, client UIDs and traffic, use `curl http://127.0.0.1:8080/api/rooms/53247`.
+Looking up a UID returns 404 once that client has left. For the whole room, with its name, client UIDs and traffic, use `GET /api/rooms/53247`.
 
 ## 6. Drop a client
 
 ```bash
-curl -X DELETE http://127.0.0.1:8080/api/rooms/53247/clients/1
+curl -X DELETE http://127.0.0.1:8080/api/rooms/53247/clients/1 -H "Authorization: Bearer $HTTP_API_KEY"
 ```
 
 The room disconnects the client on its next update. The other clients get `OnDisconnect`, and your `ClientLeft` webhook is called.
@@ -127,7 +135,7 @@ The room disconnects the client on its next update. The other clients get `OnDis
 ## 7. Close the room
 
 ```bash
-curl -X DELETE http://127.0.0.1:8080/api/rooms/53247
+curl -X DELETE http://127.0.0.1:8080/api/rooms/53247 -H "Authorization: Bearer $HTTP_API_KEY"
 ```
 
 Closing a room drops its clients without telling them, and no `ClientLeft` webhooks are sent for them, so clean up your own records for the room when you close it.
@@ -145,6 +153,7 @@ Every error except 411 comes back as JSON with the reason in `error`:
 | Status | What it means for you |
 |---|---|
 | 400 | A port, client UID or room setting is invalid. `error` says which. |
+| 401 | The `Authorization` header is missing or wrong. |
 | 404 | The room or client is gone. Treat it as closed or left. |
 | 405 | The path doesn't take that method. The `Allow` header lists the ones it does. |
 | 409 | The port you asked for is taken. Retry with `TargetPort` `0` to get a free one. |
@@ -160,11 +169,15 @@ The same flow with `HttpClient`. `EncryptionUtility` comes from `Keel.Utils.dll`
 ```csharp
 using System;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Keel.Utils.Security;
 
 using var http = new HttpClient { BaseAddress = new Uri("http://127.0.0.1:8080/") };
+
+// Every request must carry the node's API key.
+http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Environment.GetEnvironmentVariable("HTTP_API_KEY"));
 
 // Room settings are case-sensitive: send them as written, not in camelCase.
 var asWritten = JsonSerializerOptions.Default;
@@ -207,7 +220,7 @@ foreach (var client in found.GetProperty("clients").EnumerateArray())
 
 ## Doing it from Node.js
 
-The same flow with `fetch`, which Node.js has built in from version 18. Room settings are case-sensitive, and JavaScript sends property names as written, so no options are needed. [`examples/node_backend/backend.mjs`](../examples/node_backend/backend.mjs) is a runnable version that also receives the webhooks:
+The same flow with `fetch`, which Node.js has built in from version 18. Room settings are case-sensitive, and JavaScript sends property names as written, so no options are needed. [`examples/node_backend/backend.mjs`](../examples/node_backend/backend.mjs) is a runnable version that also receives the webhooks. Run it where `HTTP_API_KEY` is set:
 
 ```bash
 node examples/node_backend/backend.mjs
@@ -218,12 +231,13 @@ import crypto from 'node:crypto';
 import { createToken } from './relay-token.mjs';
 
 const nodeUrl = 'http://127.0.0.1:8080/';
+const apiKey = process.env.HTTP_API_KEY; // the node's API key
 
 // Calls the HTTP API and returns the JSON reply. A failed call throws with the node's reason.
 async function api(method, path, body) {
     const response = await fetch(new URL(path, nodeUrl), {
         method,
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
         body: body && JSON.stringify(body),
     });
     const json = await response.json();

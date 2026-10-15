@@ -16,6 +16,9 @@ namespace UdpRelay
         [InjectCommandArgument("httpListenerUrl")]
         internal readonly string HttpListenerUrl = "";
 
+        [InjectCommandArgument("httpApiKey")]
+        internal readonly string HttpApiKey = "";
+
         [InjectCommandArgument("blacklistDurationMs")]
         internal readonly int BlacklistDurationMs = 10000;
 
@@ -44,6 +47,13 @@ namespace UdpRelay
                 if (fieldValue == null)
                 {
                     result += $"\n  {field.Name} : null";
+                    continue;
+                }
+
+                // Never log secrets.
+                if (field.Name == nameof(HttpApiKey))
+                {
+                    result += $"\n  {field.Name} : <hidden>";
                     continue;
                 }
 
