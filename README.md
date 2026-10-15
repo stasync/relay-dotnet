@@ -135,7 +135,7 @@ The backend controls a node through a REST API. Every response is JSON, and each
 
 Errors use the matching status code (400, 404, 405, 409, or 500 for anything unexpected), with the reason in an `error` field.
 
-[Using the HTTP API](docs/http-api-guide.md) walks through a room's whole life, from opening it to closing it, with `curl` and C# examples. For each endpoint's parameters, responses and errors, see the [HTTP API reference](docs/http-api.md).
+[Using the HTTP API](docs/http-api-guide.md) walks through a room's whole life, from opening it to closing it, with `curl`, C# and Node.js examples. For each endpoint's parameters, responses and errors, see the [HTTP API reference](docs/http-api.md).
 
 ### Opening a room
 
@@ -192,7 +192,15 @@ var json = JsonSerializer.Serialize(new
 var token = EncryptionUtility.Encrypt(json, connectionKey);
 ```
 
-The encryption is AES-256-CBC with an HMAC-SHA256 integrity check, written as three base64 parts: `iv:ciphertext:mac`. `crypto_utils.ts` in lro_server produces the same format, so its tokens work without changes.
+In Node.js, [`relay-token.mjs`](examples/node_backend/relay-token.mjs) creates one with the built-in `crypto` module. Copy it into your backend:
+
+```js
+import { createToken } from './relay-token.mjs';
+
+const token = createToken(roomPort, connectionKey); // valid for 30 seconds
+```
+
+The encryption is AES-256-CBC with an HMAC-SHA256 integrity check, written as three base64 parts: `iv:ciphertext:mac`. To produce it in another language: the AES key is the SHA-256 of the `ConnectionKey`, the HMAC key is the SHA-256 of `mac:` followed by the `ConnectionKey`, the IV is 16 random bytes, and the MAC covers the IV followed by the ciphertext. The `ConnectionKey` must be at least 8 characters long, or the room rejects every token.
 
 A room accepts a token only if all of these hold:
 
@@ -294,13 +302,13 @@ writer.WriteBytesAndSize(Encoding.UTF8.GetBytes("hello"));
 client.Send(writer.AsArraySegment(), UdpProtocol.DeliveryMethod.ReliableOrdered);
 ```
 
-If the room has a `UdpEncryptionKey`, register the same key on the client right after `Connect()`, because the client creates its socket there:
+If the room has a `UdpObfuscationKey`, register the same key on the client right after `Connect()`, because the client creates its socket there:
 
 ```csharp
 using Keel.Networking.Udp.LowLevel.DataTransferLayers;
 
 client.Connect(roomEndPoint, connectionData: token);
-client.RegisterDataTransferLayer(new DataTransferXorObfuscationLayer(udpEncryptionKey));
+client.RegisterDataTransferLayer(new DataTransferXorObfuscationLayer(udpObfuscationKey));
 ```
 
 ### Reusable client
@@ -350,6 +358,15 @@ Each packet must fit in one UDP datagram, which usually leaves 1429 bytes for th
 
 A handler can call `Disconnect()`. To reconnect, call `Connect()` again with a new token, even from the `Disconnected` handler.
 
+## Data transfer layers and packet simulators
+
+Keel lets a room or a client hook into every datagram right at the socket:
+
+- **Data transfer layers** see each datagram in both directions and can change its bytes. A room registers up to three, depending on its settings: XOR obfuscation for `UdpObfuscationKey`, the rate limiter for `ClientRateLimiter`, and traffic counters for `CaptureDataTransferAmount`.
+- **Packet simulators** drop, delay or duplicate incoming datagrams, to test how a client copes with a bad network. Keel has six, from random loss to dropping everything. Relay doesn't register any.
+
+Register both once, at startup: a room in its constructor, and a client right after each `Connect()`. [Data transfer layers and packet simulators](docs/layers-and-simulators.md) covers the order they run in, the ones Keel provides, how to write your own, and what each simulated problem looks like to your app.
+
 ## Tests
 
 ```bash
@@ -388,10 +405,12 @@ runtime/                       the relay node (relay.csproj)
   IncomingDataAmountTracker.cs per-client rate limit
 tests/                         xUnit tests
 docs/http-api.md               HTTP API and webhook reference
-docs/http-api-guide.md         walkthrough of the HTTP API, with curl and C# examples
+docs/http-api-guide.md         walkthrough of the HTTP API, with curl, C# and Node.js examples
 docs/udp-protocol.md           byte-level layout of the UDP protocol, with size limits
+docs/layers-and-simulators.md  data transfer layers and packet simulators
 examples/chat_client/          runnable chat client that joins a room
 examples/relay_client/         reusable client class to copy into your app
+examples/node_backend/         Node.js backend: opens a room, issues tokens, receives webhooks
 build.sh                       tests and builds into artifacts/
 startup.sh                     builds and runs a node in the foreground
 dotnet_format.sh               runs dotnet format on every project

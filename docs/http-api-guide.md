@@ -1,6 +1,6 @@
 # Using the HTTP API
 
-This guide walks a backend through a room's whole life: start a node, open a room, let clients in with tokens, follow them through webhooks, and clean up. Each step uses `curl`; [Doing it from C#](#doing-it-from-c) shows the same flow with `HttpClient`.
+This guide walks a backend through a room's whole life: start a node, open a room, let clients in with tokens, follow them through webhooks, and clean up. Each step uses `curl`; [Doing it from C#](#doing-it-from-c) and [Doing it from Node.js](#doing-it-from-nodejs) show the same flow in code.
 
 The [HTTP API reference](http-api.md) lists every endpoint's fields and errors. The [README](../README.md) covers building Relay and the client protocol.
 
@@ -60,10 +60,16 @@ var token = EncryptionUtility.Encrypt(
     connectionKey);
 ```
 
+In Node.js, `createToken` from [`relay-token.mjs`](../examples/node_backend/relay-token.mjs) makes the same token:
+
+```js
+const token = createToken(port, connectionKey); // valid for 30 seconds
+```
+
 - **One token per join.** A token stays reserved until it expires, even after its client leaves, so give a reconnecting client a new one.
 - **Keep it short-lived.** The client only needs the token to join, so 30 seconds is plenty.
 
-Then send the client three things: the node's address, `room.port`, and the token. The [README](../README.md#connection-tokens) describes the encryption format, if your backend isn't in C#.
+Then send the client three things: the node's address, `room.port`, and the token. The [README](../README.md#connection-tokens) describes the encryption format, if your backend is in another language.
 
 ## 4. The client joins
 
@@ -197,4 +203,57 @@ foreach (var client in found.GetProperty("clients").EnumerateArray())
 
 // Close the room.
 (await http.DeleteAsync($"api/rooms/{port}")).EnsureSuccessStatusCode();
+```
+
+## Doing it from Node.js
+
+The same flow with `fetch`, which Node.js has built in from version 18. Room settings are case-sensitive, and JavaScript sends property names as written, so no options are needed. [`examples/node_backend/backend.mjs`](../examples/node_backend/backend.mjs) is a runnable version that also receives the webhooks:
+
+```bash
+node examples/node_backend/backend.mjs
+```
+
+```js
+import crypto from 'node:crypto';
+import { createToken } from './relay-token.mjs';
+
+const nodeUrl = 'http://127.0.0.1:8080/';
+
+// Calls the HTTP API and returns the JSON reply. A failed call throws with the node's reason.
+async function api(method, path, body) {
+    const response = await fetch(new URL(path, nodeUrl), {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: body && JSON.stringify(body),
+    });
+    const json = await response.json();
+    if (!response.ok)
+        throw new Error(`${method} /${path} failed with ${response.status}: ${json.error}`);
+
+    return json;
+}
+
+// Open a room with its own connection key.
+const connectionKey = crypto.randomUUID();
+const { room } = await api('POST', 'api/rooms', {
+    Name: 'Lobby',
+    ConnectionKey: connectionKey,
+    Webhooks: {
+        ClientJoined: 'http://127.0.0.1:3000/webhooks/client_joined/',
+        ClientLeft: 'http://127.0.0.1:3000/webhooks/client_left/',
+    },
+});
+
+// Create a token for one client: for this room only, valid for 30 seconds.
+const token = createToken(room.port, connectionKey);
+
+// ...send the node's address, the port and the token to the client...
+
+// Later: find the client that joined with the token, and drop it.
+const found = await api('GET', `api/rooms/${room.port}/clients?token=${encodeURIComponent(token)}`);
+for (const client of found.clients)
+    await api('DELETE', `api/rooms/${room.port}/clients/${client.uid}`);
+
+// Close the room.
+await api('DELETE', `api/rooms/${room.port}`);
 ```
