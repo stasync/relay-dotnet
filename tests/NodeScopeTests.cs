@@ -38,7 +38,8 @@ namespace UdpRelay.Tests
             }
             finally
             {
-                Entry.DisposeScope(scope);
+                scope.Provide<HttpWebhookSender>().Dispose();
+                scope.Dispose();
             }
         }
     }

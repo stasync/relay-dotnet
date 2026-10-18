@@ -189,10 +189,12 @@ namespace UdpRelay
             s_httpServer?.Stop();
             s_httpServer = null;
 
-            // Release the node's services (such as the webhook sender) while errors can still be logged.
+            // Release the node's services while errors can still be logged.
+            // Keel's scope doesn't dispose the services it created, so the webhook sender is disposed here.
             try
             {
-                DisposeScope(s_scope);
+                s_scope.Provide<HttpWebhookSender>().Dispose();
+                s_scope.Dispose();
             }
             catch (Exception e)
             {
@@ -229,17 +231,6 @@ namespace UdpRelay
             // The constructor rejects an invalid URL or an empty key, so it's only provided once Main has checked both.
             binder.Bind<HttpServer, HttpServer>(() => new HttpServer(url: startupArguments.HttpListenerUrl, apiKey: startupArguments.HttpApiKey));
             return new RootScope(binder.ToDependencyMap());
-        }
-
-        /// <summary>
-        /// Disposes every service the scope created, then the scope. Keel's <see cref="Scope.Dispose"/> doesn't dispose the services itself.
-        /// </summary>
-        internal static void DisposeScope(Scope scope)
-        {
-            foreach (var instance in scope.EnumerateActiveInstances())
-                (instance as IDisposable)?.Dispose();
-
-            scope.Dispose();
         }
     }
 }

@@ -20,8 +20,7 @@ namespace UdpRelay
         private readonly ConcurrentQueue<(string endpoint, string json)> _retryQueue = new();
         private readonly Timer _retryTimer;
 
-        // Public, as Keel's container only creates services through a public parameterless constructor.
-        public HttpWebhookSender()
+        internal HttpWebhookSender()
         {
             _httpClient.Timeout = TimeSpan.FromSeconds(HTTP_CLIENT_TIMEOUT_SECONDS);
 
