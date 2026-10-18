@@ -1,3 +1,4 @@
+using Keel.DependencyInjection;
 using Keel.Networking;
 using Keel.Utils.Debug;
 using Keel.Utils.Threading;
@@ -13,9 +14,7 @@ namespace UdpRelay
 {
     internal sealed class HttpRequestHandler
     {
-        internal delegate void OpenRoomDelegate(RoomSettings settings);
-
-        internal OpenRoomDelegate OpenRoom { get; init; }
+        [Inject] private readonly RoomRegistry _rooms = null;
 
         /// <summary>
         /// Binds every endpoint of the HTTP API to its handler.
@@ -88,11 +87,8 @@ namespace UdpRelay
         private Task<string> HandleGetRoomsRequest(HttpListenerContext context, IReadOnlyDictionary<string, string> routeValues)
         {
             var rooms = new List<object>();
-            foreach (var worker in Worker.All)
-            {
-                if (worker is Room room)
-                    rooms.Add(DescribeRoom(room));
-            }
+            foreach (var room in _rooms.All)
+                rooms.Add(DescribeRoom(room));
 
             Logger.LogInfo($"   Rooms Count: {rooms.Count}/{Worker.All.Count}");
 
@@ -145,7 +141,7 @@ namespace UdpRelay
             Logger.LogInfo($"   Opening a room with settings: {JsonSerializer.Serialize(settings)}");
 
             // Open the room.
-            OpenRoom(settings);
+            _rooms.Open(settings);
 
             // Reply with 201 Created, pointing at the new room.
             context.Response.StatusCode = (int)HttpStatusCode.Created;
@@ -170,11 +166,8 @@ namespace UdpRelay
         private Task<string> HandleCloseRoomsRequest(HttpListenerContext context, IReadOnlyDictionary<string, string> routeValues)
         {
             var closedRooms = new List<object>();
-            foreach (var worker in Worker.All)
+            foreach (var room in _rooms.All)
             {
-                if (worker is not Room room)
-                    continue;
-
                 closedRooms.Add(new
                 {
                     name = room.Name,
@@ -304,19 +297,15 @@ namespace UdpRelay
         /// <summary>
         /// Finds the room addressed by the "port" route value, or replies with 400 (invalid port) or 404 (no such room).
         /// </summary>
-        private static Room FindRoom(IReadOnlyDictionary<string, string> routeValues)
+        private Room FindRoom(IReadOnlyDictionary<string, string> routeValues)
         {
             var portParameter = routeValues["port"];
             if (!int.TryParse(portParameter, out var port) || port is < 1 or > ushort.MaxValue)
                 throw new HttpStatusException(HttpStatusCode.BadRequest, $"'{portParameter}' is not a valid port.");
 
-            foreach (var worker in Worker.All)
-            {
-                if (worker is Room room && room.Port == port)
-                    return room;
-            }
-
-            throw new HttpStatusException(HttpStatusCode.NotFound, $"Unable to find room with port {port}.");
+            return _rooms.TryFind(port, out var room)
+                ? room
+                : throw new HttpStatusException(HttpStatusCode.NotFound, $"Unable to find room with port {port}.");
         }
 
         private static uint ParseClientUid(string clientUidParameter) =>

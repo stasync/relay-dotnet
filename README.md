@@ -398,7 +398,8 @@ https://github.com/stasync/relay-dotnet/releases/download/latest-build/relay-lat
 ```
 .github/workflows/ci.yml       tests every push; builds and releases main
 runtime/                       the relay node (relay.csproj)
-  Entry.cs                     startup, launch arguments, HTTP routes, shutdown
+  Entry.cs                     startup, service bindings (Keel's dependency injection), signals, shutdown
+  RoomRegistry.cs              open rooms: opens and finds them, sends their webhooks
   Room.cs                      one room: token checks, routing, blocking
   RoomSettings.cs              settings accepted by POST /api/rooms
   HttpServer.cs                HTTP listener: checks the API key, then matches each request's method and path to a handler
