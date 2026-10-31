@@ -21,7 +21,7 @@ namespace UdpRelay
         private static int s_isFinalizing;
 
         // TODO: right now the node shuts down as soon as its last room is closed.
-        // TODO: see HandleRoomClosed - right now its the part of application shutdown logic.
+        // TODO: see HandleRoomClosed - right now it's part of the application shutdown logic.
         // TODO: this should be configurable.
 
         private static void Main(string[] args)
@@ -134,13 +134,12 @@ namespace UdpRelay
             // Create and start the HTTP server
             try
             {
-                // Create a handle for HTTP requests.
+                // Create a handler for HTTP requests.
                 s_httpRequestHandler = new HttpRequestHandler
                 {
                     OpenRoom = OpenRoom
                 };
 
-                // If port equals 0, it's a valid case where a 1st available port should be picked.
                 if (!Utils.IsValidUrl(s_startupArguments.HttpListenerUrl))
                     Logger.LogWarning($"Unable to initialize IPC ({nameof(HttpServer)} and {nameof(HttpWebhookSender)}) as external startup URL parameter is invalid: '{s_startupArguments.HttpListenerUrl}'.");
                 // The API exposes every client's token and can close any room, so it never runs without a key.
@@ -194,7 +193,7 @@ namespace UdpRelay
             if (Interlocked.Exchange(ref s_isFinalizing, 1) == 1)
                 return;
 
-            // Stop http sever.
+            // Stop http server.
             s_httpServer?.Stop();
             s_httpServer = null;
 
@@ -214,11 +213,11 @@ namespace UdpRelay
             s_logOutputWorker?.Stop();
             s_logOutputWorker = null;
 
-            // TODO: Properly finalize s_httpWebhookClient (?).
+            // TODO: Properly finalize s_httpWebhookSender (?).
         }
 
         /// <summary>
-        /// Opens a new room based on the specified <param name="settings"></param>.
+        /// Opens a new room based on the specified <paramref name="settings"/>.
         /// </summary>
         private static void OpenRoom(RoomSettings settings)
         {

@@ -33,7 +33,7 @@ namespace UdpRelay
 
         internal void SendAndForget(string endpoint, object payload)
         {
-            // Do nothing if string is an empty or null.
+            // Do nothing if the endpoint is null, empty or whitespace.
             if (string.IsNullOrWhiteSpace(endpoint))
                 return;
 
@@ -57,7 +57,7 @@ namespace UdpRelay
                 _urlValidityCache.TryAdd(endpoint, isValid = Utils.IsValidUrl(endpoint));
 
             if (!isValid)
-                throw new InvalidOperationException($"[{nameof(HttpWebhookSender)}] Ulr '{endpoint}' is not valid.");
+                throw new InvalidOperationException($"[{nameof(HttpWebhookSender)}] Url '{endpoint}' is not valid.");
 
             var json = JsonSerializer.Serialize(payload);
 

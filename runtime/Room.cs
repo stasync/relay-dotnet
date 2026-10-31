@@ -128,7 +128,7 @@ namespace UdpRelay
                 var layer = new IncomingDataAmountTracker(settings.ClientRateLimiter.KBitPerSecLimit);
                 layer.LimitExceeded += endpoint =>
                 {
-                    AddToBlacklist(endpoint.Address, reason: $"Client data transfer limit ({settings.ClientRateLimiter.KBitPerSecLimit}KBit/S) exceeded");
+                    AddToBlacklist(endpoint.Address, reason: $"Client data transfer limit ({settings.ClientRateLimiter.KBitPerSecLimit} kbit/s) exceeded");
                 };
                 _udpServer.RegisterDataTransferLayer(layer);
             }
@@ -153,7 +153,7 @@ namespace UdpRelay
         {
             if (string.IsNullOrWhiteSpace(_connectionKey))
             {
-                // If the primary key is not set up, we always allow the connection. This could be used from debugging/testing. This is a serious security issue and key should be assigned in production.
+                // If the primary key is not set up, we always allow the connection. This could be used for debugging/testing. This is a serious security issue and key should be assigned in production.
                 Logger.LogWarning($"[{nameof(OnValidateConnection)}] [SECURITY CONCERN] Bypassing validation for new connection ({connectionRequest.EndPoint}), as the primary connection key is not set.");
                 return true;
             }
@@ -267,15 +267,15 @@ namespace UdpRelay
                             _dataWriter.WriteByte((byte)RoomMessageType.OnJoined);
                             _dataWriter.WritePackedUInt32(senderConnectionUid);
                             _dataWriter.WritePackedUInt32((uint)_clients.Count);
-                            foreach (var existedConnection in _clients.Keys)
-                                _dataWriter.WritePackedUInt32(existedConnection);
+                            foreach (var existingConnection in _clients.Keys)
+                                _dataWriter.WritePackedUInt32(existingConnection);
 
                             // Data to send back.
                             var dataToSend = _dataWriter.AsArraySegment();
 
                             // Send back to all (including sender).
-                            foreach (var existedConnection in _clients.Keys)
-                                _udpServer.SendTo(existedConnection, dataToSend, UdpProtocol.DeliveryMethod.ReliableOrdered);
+                            foreach (var existingConnection in _clients.Keys)
+                                _udpServer.SendTo(existingConnection, dataToSend, UdpProtocol.DeliveryMethod.ReliableOrdered);
 
                             Logger.LogInfo($"[{nameof(ClientMessageType.OnAuth)}] Client '{senderConnectionUid}' joined - '{_clients.Count}' clients now.");
                         }
@@ -294,13 +294,10 @@ namespace UdpRelay
 
                             // userDataReceiversCount == 0 means that a message will be sent to everyone, except the sender.
                             _routingConnectionsCache.Clear();
-                            if (userDataReceiversCount > 0)
+                            for (var i = 0; i < userDataReceiversCount; i++)
                             {
-                                for (var i = 0; i < userDataReceiversCount; i++)
-                                {
-                                    var receiver = _dataReader.ReadPackedUInt32();
-                                    _routingConnectionsCache.Add(receiver);
-                                }
+                                var receiver = _dataReader.ReadPackedUInt32();
+                                _routingConnectionsCache.Add(receiver);
                             }
 
                             var userDataPayload = _dataReader.ReadBytesAndSizeNonAlloc();
@@ -314,17 +311,17 @@ namespace UdpRelay
                             var dataToSend = _dataWriter.AsArraySegment();
 
                             // Send it to others.
-                            foreach (var existedConnection in _clients.Keys)
+                            foreach (var existingConnection in _clients.Keys)
                             {
                                 // Should be sent:
                                 // 1. userDataReceiversCount == 0 - send it to everyone, except sender.
                                 // 2. userDataReceiversCount > 0 - collection explicitly defined, send it to all valid connections that are present in _routingConnectionsCache collection.
                                 var shouldBeSent =
-                                    userDataReceiversCount == 0 && existedConnection != senderConnectionUid ||
-                                    userDataReceiversCount > 0 && _routingConnectionsCache.Contains(existedConnection);
+                                    (userDataReceiversCount == 0 && existingConnection != senderConnectionUid) ||
+                                    (userDataReceiversCount > 0 && _routingConnectionsCache.Contains(existingConnection));
 
                                 if (shouldBeSent)
-                                    _udpServer.SendTo(existedConnection, dataToSend, deliveryMethod);
+                                    _udpServer.SendTo(existingConnection, dataToSend, deliveryMethod);
                             }
                         }
                         break;
@@ -343,16 +340,13 @@ namespace UdpRelay
 
         private void AddToBlacklist(uint connectionUid, string reason = null)
         {
-            if (BlacklistDurationMs < 1)
-                return;
-
             if (_udpServer.TryGetConnectionEndPoint(connectionUid, out var endPoint))
-                _udpServer.AddAddressToBlacklistIfAbsent(endPoint.Address, millisecondsToAdd: BlacklistDurationMs, reason);
+                AddToBlacklist(endPoint.Address, reason);
         }
 
         private void AddToBlacklist(IPAddress address, string reason = null)
         {
-            if (BlacklistDurationMs >= 1)
+            if (BlacklistDurationMs > 0)
                 _udpServer.AddAddressToBlacklistIfAbsent(address, millisecondsToAdd: BlacklistDurationMs, reason);
         }
 
@@ -417,17 +411,17 @@ namespace UdpRelay
                 // Call the client left event.
                 ClientLeft(disconnectedConnectionUid);
 
-                // Preparing data to send to existed connections.
+                // Preparing data to send to existing connections.
                 _dataWriter.SeekZero();
                 _dataWriter.WriteByte((byte)RoomMessageType.OnDisconnect);
                 _dataWriter.WritePackedUInt32(disconnectedConnectionUid);
 
-                // Data to send to existed connections.
+                // Data to send to existing connections.
                 var dataToSend = _dataWriter.AsArraySegment();
 
-                // Send it to all existed connections.
-                foreach (var existedConnection in _clients.Keys)
-                    _udpServer.SendTo(existedConnection, dataToSend, UdpProtocol.DeliveryMethod.ReliableOrdered);
+                // Send it to all existing connections.
+                foreach (var existingConnection in _clients.Keys)
+                    _udpServer.SendTo(existingConnection, dataToSend, UdpProtocol.DeliveryMethod.ReliableOrdered);
 
                 Logger.LogInfo($"[{nameof(OnDisconnected)}] Client '{disconnectedConnectionUid}' left - '{_clients.Count}' clients now.");
             }

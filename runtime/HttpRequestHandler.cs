@@ -130,14 +130,14 @@ namespace UdpRelay
 
             // The code below has the same logic as the socket api.
             // 1. Port not specified (0), caller doesn't care about the port, first available port will be used.
-            // 2. Port is specified (!=0), caller do care about the port - making sure its valid and throw otherwise.
+            // 2. Port is specified (!=0), caller does care about the port - make sure it's valid and throw otherwise.
             if (settings.TargetPort == 0)
                 settings.TargetPort = Utils.GetAvailableUdpPort();
             else if (settings.TargetPort is < 0 or > ushort.MaxValue)
                 throw new HttpStatusException(HttpStatusCode.BadRequest, $"Port {settings.TargetPort} is invalid.");
             // Port might be unavailable by the time we got here.
             else if (!Utils.IsUdpPortAvailable(settings.TargetPort))
-                throw new HttpStatusException(HttpStatusCode.Conflict, $"Port {settings.TargetPort} is not (or no longer) available at this machine.");
+                throw new HttpStatusException(HttpStatusCode.Conflict, $"Port {settings.TargetPort} is not (or no longer) available on this machine.");
 
             if (string.IsNullOrWhiteSpace(settings.Name))
                 settings.Name = $"Room_{settings.TargetPort}";
