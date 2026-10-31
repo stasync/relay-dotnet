@@ -56,12 +56,9 @@ namespace UdpRelay
             internal bool TryGetClientToken(uint clientUid, out string token) =>
                 _clients.TryGetValue(clientUid, out token);
 
-            internal uint[] ToArray()
-            {
-                var array = new uint[_clients.Count];
-                _clients.Keys.CopyTo(array, arrayIndex: 0);
-                return array;
-            }
+            // Keys is one snapshot. Reading Count separately could disagree with it if a client joins in between.
+            internal uint[] ToArray() =>
+                [.. _clients.Keys];
 
             public IEnumerator<uint> GetEnumerator() => _clients.Keys.GetEnumerator();
             IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
@@ -224,7 +221,7 @@ namespace UdpRelay
         private void OnConnectionRejected(IPEndPoint ipEndPoint, ReliableUdpClient.RejectionReason reason)
         {
             if (LogConnectionRejections)
-                Logger.LogError($"[{nameof(OnConnected)}] New connection from '{ipEndPoint}' rejected with reason '{reason}'.");
+                Logger.LogError($"[{nameof(OnConnectionRejected)}] New connection from '{ipEndPoint}' rejected with reason '{reason}'.");
 
             if (reason == ReliableUdpClient.RejectionReason.ValidationFailure)
                 AddToBlacklist(ipEndPoint.Address, reason: "Client connection validation failed");
@@ -258,7 +255,7 @@ namespace UdpRelay
                             // If a connection already exists, we shouldn't handle the 'OnAuth' message type.
                             if (!_clients.TryAdd(senderConnectionUid, clientData.Token))
                             {
-                                AddToBlacklist(senderConnectionUid, reason: $"Connection '{senderConnectionUid}' doesn't exist");
+                                AddToBlacklist(senderConnectionUid, reason: $"Connection '{senderConnectionUid}' has already joined");
                                 break;
                             }
 
@@ -401,9 +398,10 @@ namespace UdpRelay
                 return;
 
             var localUnixTimeMilliseconds = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            foreach (var token in new List<string>(_activeTokens.Keys))
+
+            // Removing entries while enumerating a Dictionary is allowed since .NET Core 3.0, so no copy of the keys is needed.
+            foreach (var (token, tokenExpirationTime) in _activeTokens)
             {
-                var tokenExpirationTime = _activeTokens[token];
                 if (localUnixTimeMilliseconds >= tokenExpirationTime)
                     _activeTokens.Remove(token);
             }

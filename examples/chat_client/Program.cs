@@ -34,6 +34,12 @@ if (args.Length < 2 || !int.TryParse(args[1], out var port))
 var host = IPAddress.TryParse(args[0], out var address)
     ? address
     : Array.Find(Dns.GetHostAddresses(args[0]), a => a.AddressFamily == AddressFamily.InterNetwork);
+if (host == null)
+{
+    Console.WriteLine($"'{args[0]}' has no IPv4 address.");
+    return 1;
+}
+
 var token = args.Length > 2 ? args[2] : null;
 
 var client = new ReliableUdpClient();

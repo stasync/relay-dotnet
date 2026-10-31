@@ -98,8 +98,8 @@ namespace UdpRelay
         {
             try
             {
-                var content = new StringContent(json, Encoding.UTF8, mediaType: "application/json");
-                var response = await _httpClient.PostAsync(endpoint, content);
+                using var content = new StringContent(json, Encoding.UTF8, mediaType: "application/json");
+                using var response = await _httpClient.PostAsync(endpoint, content);
                 var body = await response.Content.ReadAsStringAsync();
 
                 // Webhook reached, but the resource was not found, log error.

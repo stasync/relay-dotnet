@@ -223,7 +223,6 @@ namespace UdpRelay
         private static void OpenRoom(RoomSettings settings)
         {
             var room = new Room(settings, s_startupArguments.MaxClientsPerRoom, s_startupArguments.ProtocolKey, s_startupArguments.RoomUpdateIntervalMs);
-            room.Start(WorkerScope.NewForegroundThread);
             room.LogConnectionRejections = s_startupArguments.LogConnectionRejections;
             room.BlacklistDurationMs = s_startupArguments.BlacklistDurationMs;
             room.AutoCloseOnLastDisconnect = false;
@@ -256,6 +255,9 @@ namespace UdpRelay
 
             // Register the room.
             s_rooms.TryAdd(room.Uid, room);
+
+            // Start last, so the room's thread sees its settings and event handlers from its first update.
+            room.Start(WorkerScope.NewForegroundThread);
             Logger.LogInfo($"[{room.Name}] Listening on port: '{room.Port}'.");
         }
     }

@@ -50,7 +50,14 @@ const webhookServer = http.createServer(async (request, response) => {
         body += chunk;
     response.end();
 
-    const payload = JSON.parse(body);
+    // Anything else that reaches this port, such as a browser opening the URL, has no JSON body. Ignore it.
+    let payload;
+    try {
+        payload = JSON.parse(body);
+    } catch {
+        return;
+    }
+
     switch (request.url) {
         case '/webhooks/client_joined/': {
             // The token tells us which of our users this client is.
